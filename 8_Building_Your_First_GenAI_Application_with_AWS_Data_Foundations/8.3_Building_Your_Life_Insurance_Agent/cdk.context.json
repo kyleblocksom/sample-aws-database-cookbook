@@ -102,14 +102,14 @@
     "repository_name": "lifeins1-streamlit"
   },
   "github": {
-    "owner": "kyleblocksom",
-    "repo": "db-cookbook",
-    "branch": "main"
+    "owner": "<YOUR-GITHUB-OWNER>",
+    "repo": "<YOUR-GITHUB-REPO>",
+    "branch": "<YOUR-GITHUB-BRANCH>"
   },
-  "connection_arn": "arn:aws:codeconnections:us-east-1:239380694500:connection/843f16bd-5bc1-4870-b606-2d69e55e6abf",
-  "availability-zones:account=239380694500:region=us-east-1": [
-    "us-east-1a",
-    "us-east-1b",
-    "us-east-1c"
+  "connection_arn": "arn:aws:codeconnections:<YOUR-REGION>:<YOUR-ACCOUNT-ID>:connection/<YOUR-CONNECTION-ID>",
+  "availability-zones:account=<YOUR-ACCOUNT-ID>:region=<YOUR-REGION>": [
+    "<YOUR-REGION>a",
+    "<YOUR-REGION>b",
+    "<YOUR-REGION>c"
   ]
 }
