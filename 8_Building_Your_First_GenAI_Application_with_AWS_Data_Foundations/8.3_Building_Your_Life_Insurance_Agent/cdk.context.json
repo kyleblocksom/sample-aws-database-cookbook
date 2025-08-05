@@ -1,0 +1,115 @@
+{
+  "app": {
+    "name": "lifeins1",
+    "title": "Product Search Assistant",
+    "icon": "🔍",
+    "chatPrompt": "How can I help?"
+  },
+  "bedrock": {
+    "agent": {
+      "foundationModel": "anthropic.claude-3-haiku-20240307-v1:0",
+      "idleSessionTTLInSeconds": 3600,
+      "maxTokens": 2048,
+      "temperature": 0,
+      "topP": 0.9,
+      "numResults": 5
+    },
+    "knowledge_base": {
+      "embeddingModel": "amazon.titan-embed-text-v2:0"
+    }
+  },
+  "cognito": {
+    "userPoolName": "lifeins1-user-pool",
+    "secrets_manager_id": "lifeins1-cognito-params",
+    "tempPassword": "ChangeMe123!"
+  },
+  "stack": {
+    "prefix": "{app.name}"
+  },
+  "vpc": {
+    "cidr": "10.0.0.0/16",
+    "maxAzs": 3,
+    "natGateways": 1,
+    "subnetConfiguration": {
+      "public": {
+        "cidrMask": 24,
+        "name": "Public"
+      },
+      "private": {
+        "cidrMask": 24,
+        "name": "Private"
+      },
+      "isolated": {
+        "cidrMask": 24,
+        "name": "Isolated"
+      }
+    }
+  },
+  "databases": {
+    "policy": {
+      "cluster": {
+        "identifier": "lifeins1-policy",
+        "name": "policydb1"
+      },
+      "schema": "policyschema",
+      "tables": {
+        "policies": "lifeins1_policies",
+        "premiums": "lifeins1_premiums",
+        "addresses": "lifeins1_addresses",
+        "beneficiaries": "lifeins1_beneficiaries",
+        "payment_history": "lifeins1_payment_history",
+        "payment_methods": "lifeins1_payment_methods"
+      }
+    },
+    "knowledge": {
+      "cluster": {
+        "identifier": "lifeins1-kb",
+        "name": "kbdb1"
+      },
+      "schema": "bedrockintegration",
+      "tables": {
+        "bedrock_kb": "bedrock_kb",
+        "documents": "kb_documents",
+        "categories": "kb_categories",
+        "document_categories": "kb_document_categories"
+      }
+    }
+  },
+  "dynamodb": {
+    "feedback_table_name": "lifeins1-feedback",
+    "chat_history_table_name": "lifeins1-chat-history"
+  },
+  "s3": {
+    "bucketName": "lifeins1-{account}-{region}",
+    "folders": {
+      "agent": "agent",
+      "docs": "documents",
+      "assets": "assets",
+      "knowledgeBase": "knowledge-base"
+    }
+  },
+  "container": {
+    "port": 8501,
+    "memory": 4096,
+    "cpu": 1024,
+    "desired_count": 3
+  },
+  "cloudfront": {
+    "custom_header_name": "X-Custom-Header",
+    "custom_header_value": "your-secret-value-here"
+  },
+  "ecr": {
+    "repository_name": "lifeins1-streamlit"
+  },
+  "github": {
+    "owner": "kyleblocksom",
+    "repo": "db-cookbook",
+    "branch": "main"
+  },
+  "connection_arn": "arn:aws:codeconnections:us-east-1:239380694500:connection/843f16bd-5bc1-4870-b606-2d69e55e6abf",
+  "availability-zones:account=239380694500:region=us-east-1": [
+    "us-east-1a",
+    "us-east-1b",
+    "us-east-1c"
+  ]
+}

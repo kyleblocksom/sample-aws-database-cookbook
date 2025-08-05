@@ -1,0 +1,15 @@
+{
+  "name": "xanadu-app-lambda-functions",
+  "version": "1.0.0",
+  "description": "Lambda functions for Xanadu rewards APIs",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-rds": "^3.515.0",
+    "@aws-sdk/rds-signer": "^3.840.0",
+    "pg": "8.11.3",
+    "uuid": "9.0.1"
+  }
+}

@@ -1,0 +1,180 @@
+# lib/schemas/make-payment.yaml
+
+openapi: "3.0.0"
+info:
+  title: "Payment Processing API"
+  version: "1.0.0"
+  description: "API for processing credit card payments for policy premiums"
+paths:
+  /process-payment:
+    post:
+      summary: "Process a policy premium payment"
+      description: "Process a credit card payment for an insurance policy premium"
+      operationId: "processPayment"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              properties:
+                policyNumber:
+                  type: "string"
+                  description: "Policy number for the premium payment"
+                  example: "LI-1234567"
+                paymentAmount:
+                  type: "number"
+                  description: "Payment amount in dollars"
+                  minimum: 0.01
+                  example: 150.00
+                cardNumber:
+                  type: "string"
+                  description: "16-digit credit card number or last 4 digits of stored card"
+                  example: "4111 1111 1111 1111"
+                expirationDate:
+                  type: "string"
+                  description: "Credit card expiration date (YYYY-MM-DD)"
+                  pattern: "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+                  example: "2025-12-25"
+                cvv:
+                  type: "string"
+                  description: "Card security code (3-4 digits)"
+                  pattern: "^[0-9]{3,4}$"
+                  example: "123"
+              required: ["policyNumber", "paymentAmount", "cardNumber", "expirationDate", "cvv"]
+      responses:
+        "200":
+          description: "Payment processed successfully"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required: ["transactionId", "paymentStatus", "paymentAmount", "paymentMethod"]
+                properties:
+                  transactionId:
+                    type: "string"
+                    description: "Unique transaction identifier"
+                    example: "PAY123456789"
+                  paymentStatus:
+                    type: "string"
+                    description: "Payment status"
+                    enum: ["COMPLETED", "PENDING", "FAILED"]
+                    example: "COMPLETED"
+                  paymentAmount:
+                    type: "number"
+                    description: "Processed amount"
+                    example: 150.00
+                  paymentDate:
+                    type: "string"
+                    format: "date"
+                    description: "Payment date"
+                    example: "2025-07-09"
+                  paymentMethod:
+                    type: "object"
+                    required: ["paymentType", "cardLastFour", "expirationDate"]
+                    properties:
+                      paymentType:
+                        type: "string"
+                        description: "Type of payment method"
+                        enum: ["CREDIT_CARD", "ACH"]
+                        example: "CREDIT_CARD"
+                      cardLastFour:
+                        type: "string"
+                        description: "Last 4 digits of card number"
+                        example: "****"
+                      expirationDate:
+                        type: "string"
+                        description: "Card expiration date (MM/YY)"
+                        example: "12/25"
+                  paymentHistory:
+                    type: "array"
+                    items:
+                      type: "object"
+                      required: ["transactionId", "paymentDate", "paymentAmount", "paymentStatus"]
+                      properties:
+                        transactionId:
+                          type: "string"
+                          description: "Unique transaction identifier"
+                          example: "PAY123456789"
+                        paymentDate:
+                          type: "string"
+                          format: "date"
+                          description: "Payment date"
+                          example: "2025-07-08"
+                        paymentAmount:
+                          type: "number"
+                          description: "Payment amount"
+                          example: 150.00
+                        paymentStatus:
+                          type: "string"
+                          description: "Payment status"
+                          enum: ["COMPLETED", "PENDING", "FAILED"]
+                          example: "COMPLETED"
+                        cardLastFour:
+                          type: "string"
+                          description: "Last 4 digits of card used"
+                          example: "****"
+        "400":
+          description: "Bad request - validation error"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required: ["error"]
+                properties:
+                  error:
+                    type: "string"
+                    description: "Error message"
+                    example: "Invalid payment amount"
+                  errorCode:
+                    type: "string"
+                    description: "Error code for specific validation failures"
+                    example: "INVALID_AMOUNT"
+        "403":
+          description: "Forbidden - policy number mismatch with session"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required: ["error"]
+                properties:
+                  error:
+                    type: "string"
+                    description: "Error message"
+                    example: "Policy number does not match session policy"
+        "404":
+          description: "Policy or payment method not found"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required: ["error"]
+                properties:
+                  error:
+                    type: "string"
+                    description: "Error message"
+                    example: "Policy not found"
+        "409":
+          description: "Payment conflict - duplicate transaction or invalid state"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required: ["error"]
+                properties:
+                  error:
+                    type: "string"
+                    description: "Error message"
+                    example: "Duplicate payment transaction"
+        "500":
+          description: "Internal server error"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required: ["error"]
+                properties:
+                  error:
+                    type: "string"
+                    description: "Error message"
+                    example: "Internal server error"

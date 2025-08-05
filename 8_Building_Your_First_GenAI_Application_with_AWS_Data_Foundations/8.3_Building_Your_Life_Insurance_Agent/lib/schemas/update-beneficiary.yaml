@@ -1,0 +1,160 @@
+# lib/schemas/update-beneficiary.yaml
+
+openapi: "3.0.0"
+info:
+  title: "Update Beneficiary API"
+  version: "1.0.0"
+  description: "API for updating policy beneficiary information"
+paths:
+  /update-beneficiary:
+    post:
+      summary: "Update policy beneficiary information"
+      description: "Update or replace beneficiaries for a life insurance policy"
+      operationId: "updateBeneficiary"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              required: ["policyNumber", "beneficiaries"]
+              properties:
+                policyNumber:
+                  type: "string"
+                  description: "Policy number to update beneficiaries for"
+                  example: "LI-1234567"
+                beneficiaries:
+                  type: "array"
+                  description: "List of beneficiary information"
+                  minItems: 1
+                  items:
+                    type: "object"
+                    required: ["beneficiaryName", "relationship", "percentage"]
+                    properties:
+                      beneficiaryName:
+                        type: "string"
+                        description: "Full name of beneficiary"
+                        pattern: "^[a-zA-Z\\s\\-'\\.]+$"
+                        maxLength: 100
+                        example: "Mary Smith"
+                      dateOfBirth:
+                        type: "string"
+                        description: "Beneficiary's date of birth (YYYY-MM-DD)"
+                        format: "date"
+                        example: "1985-06-15"
+                      relationship:
+                        type: "string"
+                        description: "Relationship to policy owner"
+                        enum: ["SPOUSE", "CHILD", "PARENT", "SIBLING", "OTHER"]
+                        example: "SPOUSE"
+                      percentage:
+                        type: "number"
+                        description: "Allocation percentage (0.01-100.00)"
+                        minimum: 0.01
+                        maximum: 100
+                        example: 100.00
+                      isPrimary:
+                        type: "boolean"
+                        description: "Whether this is a primary beneficiary"
+                        default: false
+                        example: true
+      responses:
+        "200":
+          description: "Beneficiaries updated successfully"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required: ["status", "beneficiaries"]
+                properties:
+                  status:
+                    type: "string"
+                    enum: ["COMPLETED"]
+                    description: "Status of the update operation"
+                    example: "COMPLETED"
+                  beneficiaries:
+                    type: "array"
+                    description: "Updated beneficiary information"
+                    items:
+                      type: "object"
+                      required: ["beneficiaryId", "beneficiaryName", "relationship", "percentage", "isPrimary"]
+                      properties:
+                        beneficiaryId:
+                          type: "integer"
+                          description: "Unique identifier for the beneficiary"
+                          example: 1
+                        beneficiaryName:
+                          type: "string"
+                          description: "Full name of beneficiary"
+                          example: "Mary Smith"
+                        dateOfBirth:
+                          type: "string"
+                          format: "date"
+                          description: "Beneficiary's date of birth"
+                          example: "1985-06-15"
+                        relationship:
+                          type: "string"
+                          enum: ["SPOUSE", "CHILD", "PARENT", "SIBLING", "OTHER"]
+                          description: "Relationship to policy owner"
+                          example: "SPOUSE"
+                        percentage:
+                          type: "number"
+                          description: "Allocation percentage"
+                          example: 100.00
+                        isPrimary:
+                          type: "boolean"
+                          description: "Whether this is a primary beneficiary"
+                          example: true
+                  updateTimestamp:
+                    type: "string"
+                    format: "date-time"
+                    description: "Timestamp of the update"
+                    example: "2025-07-08T14:30:00Z"
+        "400":
+          description: "Bad request - validation error"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required: ["error"]
+                properties:
+                  error:
+                    type: "string"
+                    description: "Error message"
+                    example: "Total allocation percentage must equal 100%"
+        "403":
+          description: "Forbidden - policy number mismatch with session"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required: ["error"]
+                properties:
+                  error:
+                    type: "string"
+                    description: "Error message"
+                    example: "Policy number does not match session policy"
+        "404":
+          description: "Policy not found"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required: ["error"]
+                properties:
+                  error:
+                    type: "string"
+                    description: "Error message"
+                    example: "Policy not found"
+        "500":
+          description: "Internal server error"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required: ["error"]
+                properties:
+                  error:
+                    type: "string"
+                    description: "Error message"
+                    example: "Internal server error"

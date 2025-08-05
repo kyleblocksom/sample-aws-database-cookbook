@@ -1,0 +1,2 @@
+# lambda/create-cognito-users/requirements.txt
+boto3

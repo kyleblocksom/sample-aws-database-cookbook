@@ -1,0 +1,226 @@
+# lib/schemas/get-policy-details.yaml
+
+openapi: "3.0.0"
+info:
+  title: "Policy Details API"
+  version: "1.0.0"
+  description: "API for retrieving comprehensive policy information"
+paths:
+  /get-policy-details:
+    post:
+      summary: "Get comprehensive policy details"
+      description: "Retrieve all policy information including premium, address, and beneficiaries"
+      operationId: "getPolicyDetails"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              properties:
+                policyNumber:
+                  type: "string"
+                  description: "Policy number to lookup"
+                  example: "LI-1234567"
+              required: ["policyNumber"]
+      responses:
+        "200":
+          description: "Policy details retrieved successfully"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                properties:
+                  policy:
+                    type: "object"
+                    required: ["policyNumber", "policyType", "policyStatus", "issueDate", "faceAmount", "ownerName", "ownerDateOfBirth", "insuredPerson"]
+                    properties:
+                      policyNumber:
+                        type: "string"
+                        description: "Unique policy identifier"
+                        example: "LI-1234567"
+                      policyType:
+                        type: "string"
+                        description: "Type of life insurance policy"
+                        enum: ["TERM", "WHOLE", "UNIVERSAL"]
+                        example: "TERM"
+                      policyStatus:
+                        type: "string"
+                        description: "Current policy status"
+                        enum: ["ACTIVE", "LAPSED", "PAID_UP", "CANCELLED"]
+                        example: "ACTIVE"
+                      issueDate:
+                        type: "string"
+                        format: "date"
+                        description: "Date the policy was issued"
+                        example: "2024-03-01"
+                      faceAmount:
+                        type: "number"
+                        description: "Face value of the policy"
+                        example: 500000.00
+                      ownerName:
+                        type: "string"
+                        description: "Name of the policy owner"
+                        example: "John Smith"
+                      ownerDateOfBirth:
+                        type: "string"
+                        format: "date"
+                        description: "Date of birth of the policy owner"
+                        example: "1980-06-15"
+                      insuredPerson:
+                        type: "string"
+                        description: "Name of the insured person"
+                        example: "John Smith"
+                      valuationDate:
+                        type: "string"
+                        format: "date"
+                        description: "Date of latest policy valuation"
+                        example: "2024-06-01"
+                      netCashSurrender:
+                        type: "number"
+                        description: "Current net cash surrender value"
+                        example: 125000.00
+                  premium:
+                    type: "object"
+                    properties:
+                      amount:
+                        type: "number"
+                        description: "Premium amount due"
+                        example: 150.00
+                      frequency:
+                        type: "string"
+                        description: "Premium payment frequency"
+                        enum: ["MONTHLY", "QUARTERLY", "SEMI_ANNUAL", "ANNUAL"]
+                        example: "MONTHLY"
+                      nextDueDate:
+                        type: "string"
+                        format: "date"
+                        description: "Next premium due date"
+                        example: "2024-05-01"
+                  address:
+                    type: "object"
+                    properties:
+                      streetAddress:
+                        type: "string"
+                        description: "Street address (partially masked)"
+                        example: "*** Main St"
+                      city:
+                        type: "string"
+                        description: "City name"
+                        example: "Boston"
+                      state:
+                        type: "string"
+                        description: "Two-letter state code"
+                        example: "MA"
+                      zipCode:
+                        type: "string"
+                        description: "ZIP code (masked)"
+                        example: "*****"
+                  beneficiaries:
+                    type: "array"
+                    description: "List of policy beneficiaries"
+                    items:
+                      type: "object"
+                      required: ["beneficiaryId", "beneficiaryName", "relationship", "percentage", "isPrimary"]
+                      properties:
+                        beneficiaryId:
+                          type: "integer"
+                          description: "Unique identifier for the beneficiary"
+                          example: 1
+                        beneficiaryName:
+                          type: "string"
+                          description: "Beneficiary's full name"
+                          example: "Mary Smith"
+                        dateOfBirth:
+                          type: "string"
+                          format: "date"
+                          description: "Beneficiary's date of birth"
+                          example: "1985-06-15"
+                        relationship:
+                          type: "string"
+                          description: "Relationship to the insured"
+                          enum: ["SPOUSE", "CHILD", "PARENT", "SIBLING", "OTHER"]
+                          example: "SPOUSE"
+                        percentage:
+                          type: "number"
+                          description: "Allocation percentage"
+                          minimum: 0.01
+                          maximum: 100
+                          example: 100.00
+                        isPrimary:
+                          type: "boolean"
+                          description: "Whether this is a primary beneficiary"
+                          example: true
+                  lastPayment:
+                    type: "object"
+                    description: "Most recent payment information"
+                    properties:
+                      paymentAmount:
+                        type: "number"
+                        description: "Payment amount"
+                        example: 150.00
+                      paymentDate:
+                        type: "string"
+                        format: "date"
+                        description: "Date payment was made"
+                        example: "2024-04-01"
+                      paymentStatus:
+                        type: "string"
+                        description: "Status of the payment"
+                        enum: ["COMPLETED", "PENDING", "FAILED"]
+                        example: "COMPLETED"
+        "400":
+          description: "Bad request - invalid policy number format"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                properties:
+                  error:
+                    type: "string"
+                    description: "Error message"
+                    example: "Invalid policy number format"
+        "401":
+          description: "Unauthorized - identity not verified"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                properties:
+                  error:
+                    type: "string"
+                    description: "Error message"
+                    example: "Authentication required"
+        "403":
+          description: "Forbidden - insufficient permissions"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                properties:
+                  error:
+                    type: "string"
+                    description: "Error message"
+                    example: "Insufficient permissions to access policy details"
+        "404":
+          description: "Policy not found"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                properties:
+                  error:
+                    type: "string"
+                    description: "Error message"
+                    example: "Policy not found"
+        "500":
+          description: "Internal server error"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                properties:
+                  error:
+                    type: "string"
+                    description: "Error message"
+                    example: "Internal server error"

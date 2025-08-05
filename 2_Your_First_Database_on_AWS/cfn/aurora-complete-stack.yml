@@ -1,0 +1,687 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Complete Aurora PostgreSQL Serverless v2 stack with networking - can use existing SageMaker stack or create new networking'
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Database Configuration"
+        Parameters:
+          - DBEngineVersion
+          - MinCapacity
+          - MaxCapacity
+      - Label:
+          default: "Network Configuration"
+        Parameters:
+          - SageMakerStackName
+          - VpcCidr
+      - Label:
+          default: "Additional Features"
+        Parameters:
+          - CreateRDSProxy
+          - TemplateName
+
+Parameters:
+  SageMakerStackName:
+    Type: String
+    Description: 'Name of existing SageMaker Jupyter notebook stack (leave empty to create new networking)'
+    Default: ''
+  
+  TemplateName:
+    Type: String
+    Description: 'Prefix used for naming all AWS resources created by this template (max 20 chars, alphanumeric and hyphens only)'
+    Default: 'aurora-sv2'
+    AllowedPattern: '^[a-zA-Z0-9-]{1,20}$'
+    ConstraintDescription: 'Must be 1-20 characters, alphanumeric and hyphens only'
+    
+  DBEngineVersion:
+    Type: String
+    Description: 'Aurora PostgreSQL Engine Version'
+    Default: '16.8'
+    
+  MinCapacity:
+    Type: Number
+    Description: 'Minimum Aurora Capacity Units (ACUs) - 0 allows scaling to zero'
+    Default: 0
+    MinValue: 0
+    
+  MaxCapacity:
+    Type: Number
+    Description: 'Maximum Aurora Capacity Units (ACUs)'
+    Default: 4
+    MinValue: 1
+    
+  VpcCidr:
+    Type: String
+    Default: '172.31.0.0/16'
+    Description: 'CIDR block for VPC (only used if SageMakerStackName is empty)'
+    
+  CreateRDSProxy:
+    Type: String
+    Description: 'Create RDS Proxy for Aurora cluster'
+    Default: 'No'
+    AllowedValues:
+      - 'Yes'
+      - 'No'
+
+Conditions:
+  CreateNetworking: !Equals [!Ref SageMakerStackName, '']
+  UseExistingNetworking: !Not [!Equals [!Ref SageMakerStackName, '']]
+  CreateProxy: !Equals [!Ref CreateRDSProxy, 'Yes']
+
+Mappings:
+  ClusterSettings:
+    global:
+      dbSchema: mylab
+      dbFamily: aurora-postgresql16
+
+Resources:
+  # Networking Resources (created only if SageMakerStackName is empty)
+  MainVPC:
+    Type: AWS::EC2::VPC
+    Condition: CreateNetworking
+    Properties:
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      CidrBlock: !Ref VpcCidr
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-vpc'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Condition: CreateNetworking
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-igw'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Condition: CreateNetworking
+    Properties:
+      VpcId: !Ref MainVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Condition: CreateNetworking
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: !Select [0, !Cidr [!Ref VpcCidr, 4, 8]]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-PublicA'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Condition: CreateNetworking
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 4, 8]]
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-PublicB'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Condition: CreateNetworking
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: !Select [2, !Cidr [!Ref VpcCidr, 4, 8]]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-PrivateA'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Condition: CreateNetworking
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: !Select [3, !Cidr [!Ref VpcCidr, 4, 8]]
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-PrivateB'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: CreateNetworking
+    Properties:
+      VpcId: !Ref MainVPC
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-public-rtb'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Condition: CreateNetworking
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId: !Ref InternetGateway
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: CreateNetworking
+    Properties:
+      VpcId: !Ref MainVPC
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-private-rtb'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  PublicSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateNetworking
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateNetworking
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateNetworking
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateNetworking
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+
+  # S3 VPC Endpoint
+  S3VPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: CreateNetworking
+    Properties:
+      VpcId: !Ref MainVPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      RouteTableIds:
+        - !Ref PrivateRouteTable
+
+  # IAM Roles
+  rdsS3ImportRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: 'sts:AssumeRole'
+            Principal:
+              Service: rds.amazonaws.com
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess'
+      Path: /
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-s3-import-role'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  rdsMonitoringRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: 'sts:AssumeRole'
+            Principal:
+              Service: monitoring.rds.amazonaws.com
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole'
+      Path: /
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-monitoring-role'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  # KMS Key
+  dbEncryptionKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: 'KMS key for Aurora database encryption'
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-db-key'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+
+
+  # Database Security Group
+  dbSecGroupCluster:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !If
+        - CreateNetworking
+        - !Ref MainVPC
+        - !ImportValue
+          'Fn::Sub': '${SageMakerStackName}-VpcId'
+      GroupDescription: 'Aurora Database Security Group'
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-db-sg'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: !If
+            - CreateNetworking
+            - !Ref VpcCidr
+            - '172.31.0.0/16'
+          Description: 'Allow PostgreSQL access from VPC'
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: '0.0.0.0/0'
+          Description: 'Allow all outbound traffic'
+
+  # Additional ingress rule for SageMaker if using existing stack
+  dbSecGroupSageMakerIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: UseExistingNetworking
+    Properties:
+      GroupId: !Ref dbSecGroupCluster
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !ImportValue
+        'Fn::Sub': '${SageMakerStackName}-SageMakerSecurityGroup'
+      Description: 'Allow access from SageMaker notebook'
+
+  # Self-reference ingress rule
+  dbSecGroupClusterIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref dbSecGroupCluster
+      IpProtocol: tcp
+      FromPort: 0
+      ToPort: 65535
+      SourceSecurityGroupId: !Ref dbSecGroupCluster
+      Description: 'Self Reference'
+
+  # DB Subnet Group
+  dbSubnets:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub 
+        - '${TemplateName}-${StackSuffix}-db-subnet-group'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      SubnetIds: !If
+        - CreateNetworking
+        - [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+        - !Split
+          - ','
+          - !ImportValue
+              'Fn::Sub': '${SageMakerStackName}-PrivateSubnets'
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-db-subnet-group'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  # Parameter Groups
+  apgCustomDbParamGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: !Sub 
+        - '${TemplateName}-${StackSuffix}-db-param-group'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      Family: !FindInMap [ClusterSettings, global, dbFamily]
+      Parameters:
+        log_rotation_age: '1440'
+        log_rotation_size: '102400'
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-db-param-group'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  apgCustomClusterParamGroup:
+    Type: AWS::RDS::DBClusterParameterGroup
+    Properties:
+      Description: !Sub 
+        - '${TemplateName}-${StackSuffix}-cluster-param-group'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      Family: !FindInMap [ClusterSettings, global, dbFamily]
+      Parameters:
+        rds.force_ssl: 0
+        shared_preload_libraries: 'pg_stat_statements,pg_hint_plan,auto_explain'
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-cluster-param-group'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  # Aurora Cluster
+  dbCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      DBClusterIdentifier: !Sub 
+        - '${TemplateName}-${StackSuffix}-cluster'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      Engine: aurora-postgresql
+      EngineVersion: !Ref DBEngineVersion
+      EngineLifecycleSupport: open-source-rds-extended-support-disabled
+      Port: 5432
+      DBSubnetGroupName: !Ref dbSubnets
+      DBClusterParameterGroupName: !Ref apgCustomClusterParamGroup
+      BackupRetentionPeriod: 1
+      MasterUsername: masteruser
+      ManageMasterUserPassword: true
+      MasterUserSecret:
+        KmsKeyId: !Ref dbEncryptionKey
+      DatabaseName: !FindInMap [ClusterSettings, global, dbSchema]
+      StorageEncrypted: true
+      KmsKeyId: !Ref dbEncryptionKey
+      VpcSecurityGroupIds:
+        - !Ref dbSecGroupCluster
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: !Ref MinCapacity
+        MaxCapacity: !Ref MaxCapacity
+      EnableHttpEndpoint: true
+      AutoMinorVersionUpgrade: false
+      EnableIAMDatabaseAuthentication: true
+      AssociatedRoles:
+        - RoleArn: !GetAtt rdsS3ImportRole.Arn
+          FeatureName: s3Import
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-cluster'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  # Writer Instance
+  dbNodeWriter:
+    Type: AWS::RDS::DBInstance
+    DependsOn: dbCluster
+    Properties:
+      DBClusterIdentifier: !Ref dbCluster
+      CopyTagsToSnapshot: true
+      DBInstanceClass: db.serverless
+      DBParameterGroupName: !Ref apgCustomDbParamGroup
+      Engine: aurora-postgresql
+      MonitoringInterval: 60
+      MonitoringRoleArn: !GetAtt rdsMonitoringRole.Arn
+      PubliclyAccessible: false
+      EnablePerformanceInsights: true
+      PerformanceInsightsRetentionPeriod: 7
+      AutoMinorVersionUpgrade: false
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-writer'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  # Reader Instance
+  dbNodeReader:
+    Type: AWS::RDS::DBInstance
+    DependsOn: dbNodeWriter
+    Properties:
+      DBClusterIdentifier: !Ref dbCluster
+      CopyTagsToSnapshot: true
+      DBInstanceClass: db.serverless
+      DBParameterGroupName: !Ref apgCustomDbParamGroup
+      Engine: aurora-postgresql
+      MonitoringInterval: 60
+      MonitoringRoleArn: !GetAtt rdsMonitoringRole.Arn
+      PubliclyAccessible: false
+      EnablePerformanceInsights: true
+      PerformanceInsightsRetentionPeriod: 7
+      AutoMinorVersionUpgrade: false
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-reader'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  # RDS Proxy IAM Role
+  rdsProxyRole:
+    Type: AWS::IAM::Role
+    Condition: CreateProxy
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: rds.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: RDSProxySecretsManagerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:GetSecretValue'
+                  - 'secretsmanager:DescribeSecret'
+                Resource: !GetAtt dbCluster.MasterUserSecret.SecretArn
+              - Effect: Allow
+                Action:
+                  - 'kms:Decrypt'
+                Resource: !Ref dbEncryptionKey
+                Condition:
+                  StringEquals:
+                    'kms:ViaService': !Sub 'secretsmanager.${AWS::Region}.amazonaws.com'
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-proxy-role'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  # RDS Proxy
+  rdsProxy:
+    Type: AWS::RDS::DBProxy
+    Condition: CreateProxy
+    Properties:
+      DBProxyName: !Sub 
+        - '${TemplateName}-${StackSuffix}-proxy'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      EngineFamily: POSTGRESQL
+      Auth:
+        - AuthScheme: SECRETS
+          SecretArn: !GetAtt dbCluster.MasterUserSecret.SecretArn
+      RoleArn: !GetAtt rdsProxyRole.Arn
+      VpcSubnetIds: !If
+        - CreateNetworking
+        - [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+        - !Split
+          - ','
+          - !ImportValue
+              'Fn::Sub': '${SageMakerStackName}-PrivateSubnets'
+      VpcSecurityGroupIds:
+        - !Ref dbSecGroupCluster
+      RequireTLS: false
+      IdleClientTimeout: 1800
+      MaxConnectionsPercent: 100
+      MaxIdleConnectionsPercent: 50
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${TemplateName}-${StackSuffix}-proxy'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  # RDS Proxy Target Group
+  rdsProxyTargetGroup:
+    Type: AWS::RDS::DBProxyTargetGroup
+    Condition: CreateProxy
+    Properties:
+      DBProxyName: !Ref rdsProxy
+      TargetGroupName: default
+      DBClusterIdentifiers:
+        - !Ref dbCluster
+      ConnectionPoolConfig:
+        MaxConnectionsPercent: 100
+        MaxIdleConnectionsPercent: 50
+        ConnectionBorrowTimeout: 120
+
+Outputs:
+  VpcId:
+    Description: 'VPC ID'
+    Value: !If
+      - CreateNetworking
+      - !Ref MainVPC
+      - !ImportValue
+          'Fn::Sub': '${SageMakerStackName}-VpcId'
+    Export:
+      Name: !Sub '${AWS::StackName}-VpcId'
+
+  PrivateSubnets:
+    Description: 'Private Subnets'
+    Value: !If
+      - CreateNetworking
+      - !Join [',', [!Ref PrivateSubnetA, !Ref PrivateSubnetB]]
+      - !ImportValue
+          'Fn::Sub': '${SageMakerStackName}-PrivateSubnets'
+    Export:
+      Name: !Sub '${AWS::StackName}-PrivateSubnets'
+
+  ClusterEndpoint:
+    Description: 'Aurora Cluster Writer Endpoint'
+    Value: !GetAtt dbCluster.Endpoint.Address
+    Export:
+      Name: !Sub '${AWS::StackName}-ClusterEndpoint'
+
+  ReaderEndpoint:
+    Description: 'Aurora Cluster Reader Endpoint'
+    Value: !GetAtt dbCluster.ReadEndpoint.Address
+    Export:
+      Name: !Sub '${AWS::StackName}-ReaderEndpoint'
+
+  Port:
+    Description: 'Aurora Endpoint Port'
+    Value: !GetAtt dbCluster.Endpoint.Port
+    Export:
+      Name: !Sub '${AWS::StackName}-Port'
+
+  DatabaseName:
+    Description: 'Database Name'
+    Value: !FindInMap [ClusterSettings, global, dbSchema]
+    Export:
+      Name: !Sub '${AWS::StackName}-DatabaseName'
+
+  SecretArn:
+    Description: 'Database Credentials Secret ARN (RDS Managed)'
+    Value: !GetAtt dbCluster.MasterUserSecret.SecretArn
+    Export:
+      Name: !Sub '${AWS::StackName}-SecretArn'
+
+  DBUsername:
+    Description: 'Database master username'
+    Value: 'masteruser'
+    Export:
+      Name: !Sub '${AWS::StackName}-DBUsername'
+
+  SecurityGroupId:
+    Description: 'Database Security Group ID'
+    Value: !Ref dbSecGroupCluster
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroupId'
+
+  S3ImportRoleArn:
+    Description: 'IAM Role ARN for S3 Import'
+    Value: !GetAtt rdsS3ImportRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-S3ImportRoleArn'
+
+  ProxyEndpoint:
+    Description: 'RDS Proxy Endpoint (only if proxy is created)'
+    Condition: CreateProxy
+    Value: !GetAtt rdsProxy.Endpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-ProxyEndpoint'
+
+  ProxyArn:
+    Description: 'RDS Proxy ARN (only if proxy is created)'
+    Condition: CreateProxy
+    Value: !GetAtt rdsProxy.DBProxyArn
+    Export:
+      Name: !Sub '${AWS::StackName}-ProxyArn'

@@ -1,0 +1,5 @@
+# lambda/create-kb-extension/requirements.txt
+boto3
+psycopg2-binary
+urllib3
+sqlalchemy

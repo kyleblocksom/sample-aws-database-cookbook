@@ -1,0 +1,3 @@
+# lambda/associate-kb/requirements.txt
+boto3
+botocore

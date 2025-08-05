@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "@aws-sdk/client-bedrock-agent": "^3.485.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/aws-lambda": "^8.10.92"
+  }
+}

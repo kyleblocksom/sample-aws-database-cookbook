@@ -1,0 +1,1131 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: >
+    This template deploys a VPC, Aurora DB Cluster, Bedrock and EC2 instance
+
+Parameters:
+  TemplateName:
+    Type: String
+    Default: hcls-cookbook-lab
+    Description: Name used for different elements created.
+
+  LatestAmiId:
+    Description: Image ID is from Parameter store of SSM. Leave it as-is.
+    Type:  "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+  VpcName:
+    Default: hclcookbooklab
+    Type: String
+
+  VpcCIDR:
+    Default: 10.215.0.0/16
+    Type: String
+
+  Subnet1CIDR:
+    Default: 10.215.10.0/24
+    Type: String
+
+  Subnet2CIDR:
+    Default: 10.215.20.0/24
+    Type: String
+
+  Subnet3CIDR:
+    Default: 10.215.30.0/24
+    Type: String
+
+  Subnet4CIDR:
+    Default: 10.215.40.0/24
+    Type: String
+
+  DBEngineVersion:
+    Type: String
+    Default: 15.5
+    AllowedValues:
+      - 15.5
+  
+  DBInstanceSize:
+    Type: String
+    Default: db.r6g.2xlarge
+    AllowedValues:
+      - db.r6g.xlarge
+      - db.r6g.2xlarge
+      - db.r6g.4xlarge
+      - db.t4g.large
+
+  DBPort:
+    Description: TCP/IP Port for the Database Instance
+    Type: Number
+    Default: 5432
+    ConstraintDescription: 'Must be in the range [1150-65535]'
+    MinValue: 1150
+    MaxValue: 65535
+
+Resources:
+## Create enhanced monitoring role
+  roleEnhancedMonitoring:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: "/service-role/"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - monitoring.rds.amazonaws.com
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
+
+# VPC ----------------------------------------------------------
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Ref VpcName
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+          
+  FlowLog:
+    Type: AWS::EC2::FlowLog
+    Properties:
+      ResourceId: !Ref VPC
+      ResourceType: VPC
+      TrafficType: ALL
+      LogDestinationType: cloud-watch-logs
+      LogGroupName: !Sub "${AWS::StackName}-vpc-flow-logs"
+      DeliverLogsPermissionArn: !GetAtt FlowLogRole.Arn
+      
+  FlowLogRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: vpc-flow-logs.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: flowlogs-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${AWS::StackName}-vpc-flow-logs:*"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Ref VpcName
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  # NAT Gateway Configuration
+  EIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt EIP.AllocationId
+      SubnetId: !Ref Subnet1
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-NAT
+
+  Subnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 0, !GetAZs ]
+      MapPublicIpOnLaunch: false
+      CidrBlock: !Ref Subnet1CIDR
+      Tags:
+        - Key: Name
+          Value: !Sub ${VpcName} (Public)
+
+  Subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 1, !GetAZs ]
+      MapPublicIpOnLaunch: false
+      CidrBlock: !Ref Subnet2CIDR
+      Tags:
+        - Key: Name
+          Value: !Sub ${VpcName} (Public)
+
+  Subnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 0, !GetAZs ]
+      MapPublicIpOnLaunch: false
+      CidrBlock: !Ref Subnet3CIDR
+      Tags:
+        - Key: Name
+          Value: !Sub ${VpcName} (Private)
+
+  Subnet4:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 1, !GetAZs ]
+      MapPublicIpOnLaunch: false
+      CidrBlock: !Ref Subnet4CIDR
+      Tags:
+        - Key: Name
+          Value: !Sub ${VpcName} (Private)
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Public
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Private
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway    
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway
+
+  # Route Table Associations
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref Subnet1
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref Subnet2
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref Subnet3
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref Subnet4
+
+# END VPC ------------------------------------------------------
+
+# Creating bucket for loading Knowledge Base for Bedrock
+  HclCookbookBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LoggingConfiguration:
+        DestinationBucketName: !Ref LoggingBucket
+        LogFilePrefix: "s3-access-logs/"
+        
+  HclCookbookBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DependsOn: HclCookbookBucket
+    Properties:
+      Bucket: !Ref HclCookbookBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowSSLRequestsOnly
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Sub 'arn:aws:s3:::${HclCookbookBucket}'
+              - !Sub 'arn:aws:s3:::${HclCookbookBucket}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': false
+      
+  LoggingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+        
+  LoggingBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DependsOn: LoggingBucket
+    Properties:
+      Bucket: !Ref LoggingBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowSSLRequestsOnly
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Sub 'arn:aws:s3:::${LoggingBucket}'
+              - !Sub 'arn:aws:s3:::${LoggingBucket}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': false
+          - Sid: AllowLogDeliveryWrite
+            Effect: Allow
+            Principal:
+              Service: logging.s3.amazonaws.com
+            Action:
+              - 's3:PutObject'
+            Resource: !Sub 'arn:aws:s3:::${LoggingBucket}/*'
+                
+  # IAM Role for Aurora S3 Import
+  AuroraS3ImportRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: "/service-role/"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: rds.amazonaws.com
+            Action: sts:AssumeRole
+
+  # IAM Policy for S3 Access
+  AuroraS3ImportPolicy:
+    Type: AWS::IAM::Policy
+    DependsOn: HclCookbookBucket
+    Properties:
+      PolicyName: !Join ['-', ['aurora-s3-import-policy', !Select [4, !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId]]]]]]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:AbortMultipartUpload
+              - s3:DeleteObject
+              - s3:ListMultipartUploadParts
+              - s3:PutObject
+              - s3:ListBucket
+            Resource:
+              - !Sub arn:aws:s3:::${HclCookbookBucket}/*
+              - !Sub arn:aws:s3:::${HclCookbookBucket}
+      Roles:
+        - !Ref AuroraS3ImportRole
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    DependsOn: [profileClientIDE, DBNodeWriter, LambdaFunction, HclCookbookBucketPolicy, LoggingBucketPolicy]
+    DeletionPolicy: Retain
+    Properties:
+      InstanceType: 't3.medium'
+      ImageId: !Ref LatestAmiId
+      IamInstanceProfile: !Ref profileClientIDE
+      InstanceInitiatedShutdownBehavior: "terminate"
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp2
+            VolumeSize: '100'
+            DeleteOnTermination: 'false'
+            Encrypted: 'true'
+      Tags:
+        - Key: Name
+          Value: !Join ['-', ['Streamlit-Application', !Select [4, !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId]]]],!Sub "${AWS::Region}"]] 
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet: 
+            - Ref: "SecurityGroup"
+          SubnetId: 
+            Ref: Subnet1 
+      UserData:
+        Fn::Base64: !Sub
+        - |
+          #!/bin/bash
+          mkdir -p /home/ec2-user/logs
+          exec &> >(tee /home/ec2-user/logs/complete-userdata-execution-statements.log)
+          sudo yum update -y
+          sudo amazon-linux-extras enable postgresql14
+          sudo yum clean metadata
+          echo "$(date +\"%F\ %T\") * running as $(whoami)" >> /home/ec2-user/logs/bootstrap.log
+          yum install -y unzip jq aws-cfn-bootstrap gcc python3-devel postgresql-devel postgresql
+          psql --version
+          sudo pip3 uninstall awscli -y
+          sudo rm -r /usr/bin/aws -f
+          mkdir /home/ec2-user/awscl
+          echo "$(date +\"%F\ %T\") * Installing AWSCLI Version 2" >> /home/ec2-user/logs/bootstrap.log
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/home/ec2-user/awscl/awscliv2.zip"
+          unzip "/home/ec2-user/awscl/awscliv2.zip" -d "/home/ec2-user/awscl"
+          sudo chown ec2-user:ec2-user /home/ec2-user/awscl/aws -R
+          sudo /home/ec2-user/awscl/aws/install -i /usr/local/aws-cli -b /usr/local/bin
+          echo "$(date +\"%F\ %T\") * installed awscli (v2)" >> /home/ec2-user/logs/bootstrap.log
+          sudo yum install git -y
+          git version >> /home/ec2-user/logs/bootstrap.log
+          sudo mkdir -p /tmp/ssm
+          wget https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
+          sudo systemctl enable amazon-ssm-agent  
+          sudo systemctl start amazon-ssm-agent 
+          sudo systemctl status amazon-ssm-agent
+          echo "$(date +\"%F\ %T\") * Installed supporting packages like ssm-agent - AWSCLIv2 - git" >> /home/ec2-user/logs/bootstrap.log
+          /usr/bin/python3.7 -m pip install streamlit pandas  python-dotenv boto3 awscli psycopg2 urllib3==1.26.6
+          # Create application directory
+          mkdir -p /home/ec2-user/streamlit-app
+          sudo chown -R ec2-user:ec2-user /home/ec2-user/streamlit-app/
+
+          cat << EOF > /home/ec2-user/streamlit-app/.env
+          S3_BUCKET_NAME=${HclCookbookBucket}
+          AWS_REGION=${AWS::Region}
+          SECRET_NAME=${RDSSecrets}
+          EOF
+
+          sudo chown -R ec2-user:ec2-user /home/ec2-user/streamlit-app/.env
+          aws s3 cp s3://${HclCookbookBucket}/metadata.json /home/ec2-user/streamlit-app/metadata.json
+          S3_FILE_KEY=$(aws s3 ls s3://${HclCookbookBucket}/ | grep '\.csv$' | sort -r | head -1 | awk '{print $4}')
+
+          # Create the main script
+          cat << 'EOF' > /home/ec2-user/streamlit-app/setup_postgres.sh
+          # Set variables
+          S3_FILE_KEY=$(aws s3 ls s3://${HclCookbookBucket}/ | grep '\.csv$' | sort -r | head -1 | awk '{print $4}')
+
+          # Function to log messages
+          log_message() {
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+          }
+
+          # Get secret from Secrets Manager
+          log_message "Retrieving database credentials from Secrets Manager..."
+          SECRET_ARN="${RDSSecrets}"
+          REGION="${AWS::Region}"
+
+          # Retrieve and parse secret
+          SECRET=$(aws secretsmanager get-secret-value \
+              --secret-id $SECRET_ARN \
+              --region $REGION \
+              --query SecretString \
+              --output text)
+
+          # Extract values from secret
+          DB_HOST=$(echo $SECRET | jq -r '.host')
+          DB_NAME=$(echo $SECRET | jq -r '.engine')
+          DB_USER=$(echo $SECRET | jq -r '.username')
+          DB_PASSWORD=$(echo $SECRET | jq -r '.password')
+
+
+          # Get table name (first key from JSON)
+          TABLE_NAME=$(jq -r 'keys[0]' /home/ec2-user/streamlit-app/metadata.json)
+
+          # Create SQL file
+          sql_file="/home/ec2-user/streamlit-app/create_table.sql"
+
+          # Generate CREATE TABLE statement and save to SQL file
+          {
+              echo "CREATE TABLE $TABLE_NAME ("
+              jq -r ".[\"$TABLE_NAME\"] | to_entries | map(
+                  if .value == \"string\" then
+                      \"    \" + .key + \" VARCHAR(255)\"
+                  else
+                      \"    \" + .key + \" \" + .value
+                  end
+              ) | join(\",\n\")" /home/ec2-user/streamlit-app/metadata.json
+              echo ");"
+          } > "$sql_file"
+
+          echo "SQL file created: $sql_file"
+
+          # Create pgpass file for passwordless connection
+          echo "$DB_HOST:5432:$DB_NAME:$DB_USER:$DB_PASSWORD" > ~/.pgpass
+          chmod 600 ~/.pgpass
+
+          sudo chown -R ec2-user:ec2-user /home/ec2-user/streamlit-app/create_table.sql
+
+          PGPASSFILE=~/.pgpass psql -h $DB_HOST -U $DB_USER -d $DB_NAME -f /home/ec2-user/streamlit-app/create_table.sql
+
+          # Create SQL script
+          cat << EOSQL > /home/ec2-user/streamlit-app/setuppg.sql
+          -- Create aws_s3 extension
+          CREATE EXTENSION IF NOT EXISTS aws_s3 CASCADE;
+
+          -- Drop table if exists
+          -- DROP TABLE IF EXISTS $TABLE_NAME;
+
+          -- Import data from S3
+          SELECT aws_s3.table_import_from_s3(
+              '$TABLE_NAME',
+              '',
+              '(format csv, HEADER true)',
+              aws_commons.create_s3_uri(
+                  '${HclCookbookBucket}',
+                  '$S3_FILE_KEY',
+                  '${AWS::Region}'
+              )
+          );
+
+          -- Verify data
+          SELECT COUNT(*) FROM $TABLE_NAME;
+          SELECT * FROM $TABLE_NAME LIMIT 5;
+          EOSQL
+
+          # Execute SQL script
+          sudo chown -R ec2-user:ec2-user /home/ec2-user/streamlit-app/setuppg.sql
+          log_message "Executing SQL script..."
+          PGPASSFILE=~/.pgpass psql -h $DB_HOST -U $DB_USER -d $DB_NAME -f /home/ec2-user/streamlit-app/setuppg.sql
+
+          log_message "Script execution completed!"
+          EOF
+
+          # Make script executable and run it
+          sudo chown -R ec2-user:ec2-user /home/ec2-user/streamlit-app/setup_postgres.sh
+          sudo chown -R ec2-user:ec2-user /home/ec2-user/streamlit-app/
+          chmod +x /home/ec2-user/streamlit-app/setup_postgres.sh
+          /home/ec2-user/streamlit-app/setup_postgres.sh > /home/ec2-user/streamlit-app/setup_postgres.log
+
+        - {
+          }
+
+  roleClientIDE:
+    Type: "AWS::IAM::Role"
+    Properties:
+      Path: "/service-role/"
+      Description: "Permits user interaction with AWS APIs from the EC2."
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - "sts:AssumeRole"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+      Policies:
+        - PolicyName: !Join ['-', ['StackSetExecutionRolePolicy', !Select [4, !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId]]]],!Sub "${AWS::Region}"]]
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              # ... existing statements ...
+              - Effect: Allow
+                Action:
+                  - "kms:Decrypt"
+                  - "kms:DescribeKey"
+                  - "kms:GenerateDataKey"
+                  - "kms:CreateGrant"
+                Resource: !GetAtt EncryptionKey.Arn
+        - PolicyName: !Join ['-', ['KMS-Policy', !Select [4, !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId]]]],!Sub "${AWS::Region}"]]
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "iam:GetRole"
+                  - "iam:GetRolePolicy"
+                  - "iam:PassRole"
+                  - "iam:DetachRolePolicy"
+                  - "iam:DeleteRolePolicy"
+                  - "iam:DeleteRole"
+                  - "iam:CreateRole"
+                  - "iam:AttachRolePolicy"
+                  - "iam:PutRolePolicy"
+                Resource:
+                  - "arn:aws:iam::*:role/*"
+              - Effect: Allow
+                Action:
+                  - "ce:GetCostAndUsage"
+                  - "ce:GetDimensionValues"
+                  - "ce:GetReservationUtilization"
+                  - "ce:GetCostForecast"
+                  - "ce:GetSavingsPlansPurchaseRecommendation"
+                Resource: !Sub "arn:aws:ce:${AWS::Region}:${AWS::AccountId}:*"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+        - "arn:aws:iam::aws:policy/AmazonSSMFullAccess"
+        - "arn:aws:iam::aws:policy/AmazonSSMDirectoryServiceAccess"
+        - "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+        - "arn:aws:iam::aws:policy/AWSCloudFormationFullAccess"
+        - "arn:aws:iam::aws:policy/AmazonRDSFullAccess"
+        - "arn:aws:iam::aws:policy/SecretsManagerReadWrite"
+        - "arn:aws:iam::aws:policy/AmazonBedrockFullAccess"
+      Tags:
+        - Key: Name
+          Value: !Join ['-', ['RDS-Custom-HA-Automation-Replica', !Select [4, !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId]]]]]]        
+
+                      
+  profileClientIDE:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: /
+      Roles:
+        - Ref: roleClientIDE  
+  
+
+  
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Notebook Instance Security Group
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: "Allow HTTPS outbound traffic"
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: "Allow HTTP outbound traffic"
+        - IpProtocol: tcp
+          FromPort: !Ref DBPort
+          ToPort: !Ref DBPort
+          CidrIp: !Ref VpcCIDR
+          Description: "Allow DB port outbound traffic within VPC"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref DBPort
+          ToPort: !Ref DBPort
+          CidrIp: !Ref VpcCIDR
+          Description: "Allow DB port access within VPC"
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: "Allow HTTPS access"
+
+  ExecutionRole: 
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+                - "sagemaker.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+        - arn:aws:iam::aws:policy/SecretsManagerReadWrite
+        - arn:aws:iam::aws:policy/AmazonRDSReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonBedrockFullAccess
+      Policies:
+        - 
+          PolicyName: "s3_access"
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement: 
+              - 
+                Effect: "Allow"
+                Action: 
+                  - "s3:PutBucketPolicy"
+                  - "s3:DeleteBucket"
+                Resource: "arn:aws:s3:::sagemaker-*"                
+
+
+# Aurora PostgreSQL -----------------------------------------------
+
+  EncryptionKey:
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Type: AWS::KMS::Key
+    Properties:
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: 2012-10-17
+        Id: !Ref AWS::StackName
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS:
+                - !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: "kms:*"
+            Resource: "*"
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+
+  EncryptionKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub "alias/${AWS::StackName}"
+      TargetKeyId: !Ref EncryptionKey
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "RDS DB Subnet Group"
+      SubnetIds: [!Ref Subnet3, !Ref Subnet4 ]
+
+  ## Create parameter groups for DB cluster
+  apgcustomclusterparamgroup:
+    Type: AWS::RDS::DBClusterParameterGroup
+    Properties:
+      Description: "Aurora PostgreSQL Custom Cluster parameter group"
+      Family: aurora-postgresql15
+      Parameters:
+        shared_preload_libraries: "pg_stat_statements"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-clusterparamgroup"
+  
+  ## Create parameter groups for cluster nodes
+  apgcustomdbparamgroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: !Sub ${AWS::StackName}-dbparamgroup
+      Family: aurora-postgresql15
+      Parameters:
+        log_rotation_age: '1440'
+        log_rotation_size: '102400'
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-dbparamgroup
+
+  RDSSecrets:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: 'This is the secret for Aurora cluster'
+      KmsKeyId: !Ref EncryptionKey
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "postgres" }'
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludePunctuation: true
+
+  VPCSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: !Ref 'AWS::StackName'
+      SecurityGroupEgress:
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: "0.0.0.0/0"
+        Description: "Allow HTTPS outbound traffic"
+      - IpProtocol: tcp
+        FromPort: !Ref DBPort
+        ToPort: !Ref DBPort
+        CidrIp: !Ref VpcCIDR
+        Description: "Allow DB port outbound traffic within VPC"
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: !Ref DBPort
+        ToPort: !Ref DBPort
+        CidrIp: !Ref VpcCIDR
+        Description: 'Access to AppServer Host Security Group'
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub '${AWS::StackName}-DBSecurityGroup'
+
+
+
+## Create Aurora cluster
+  DBCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-postgresql
+      Port: !Ref DBPort
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref RDSSecrets, ':SecretString:username}}' ]]
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref RDSSecrets, ':SecretString:password}}' ]]
+      DBClusterParameterGroupName: !Ref apgcustomclusterparamgroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      AutoMinorVersionUpgrade: true
+      EngineVersion: "15.5"
+      KmsKeyId: !Ref EncryptionKey
+      StorageEncrypted: true
+      StorageType: aurora-iopt1
+      BackupRetentionPeriod: 7
+      DeletionProtection: false
+      EnableIAMDatabaseAuthentication: true
+      VpcSecurityGroupIds: [ !Ref VPCSecurityGroup ]
+      AssociatedRoles:
+        - FeatureName: s3Import
+          RoleArn: !GetAtt AuroraS3ImportRole.Arn      
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}"
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+## Deploy the first cluster node (always the writer)
+  DBNodeWriter:
+    Type: AWS::RDS::DBInstance
+    DependsOn: DBCluster
+    Properties:
+      DBClusterIdentifier: !Ref DBCluster
+      CopyTagsToSnapshot: true
+      DBInstanceClass: !Ref DBInstanceSize
+      DBParameterGroupName: !Ref apgcustomdbparamgroup
+      Engine: aurora-postgresql
+      MonitoringInterval: 1
+      MonitoringRoleArn: !GetAtt roleEnhancedMonitoring.Arn
+      PubliclyAccessible: false
+      EnablePerformanceInsights: true
+      PerformanceInsightsRetentionPeriod: 7
+      AutoMinorVersionUpgrade: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-node-01
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+
+  SecretPostgreSQLAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId: !Ref RDSSecrets
+      TargetId: !Ref DBCluster
+      TargetType: AWS::RDS::DBCluster
+
+# end Aurora PostgreSQL -----------------------------------------------
+
+  # Lambda Execution Role
+  LambdaExecutionRole:
+      Type: AWS::IAM::Role
+      Properties:
+          AssumeRolePolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                  - Effect: Allow
+                    Principal:
+                      Service:
+                          - lambda.amazonaws.com
+                    Action:
+                      - 'sts:AssumeRole'
+          ManagedPolicyArns:
+              - arn:aws:iam::aws:policy/AWSLambda_FullAccess
+              - arn:aws:iam::aws:policy/CloudWatchFullAccess
+              - arn:aws:iam::aws:policy/AmazonS3FullAccess
+              - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+          Policies:
+            - PolicyName: LambdaSQSPermissions
+              PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    - Effect: Allow
+                      Action:
+                        - sqs:SendMessage
+                        - sqs:GetQueueUrl
+                        - sqs:GetQueueAttributes
+                      Resource: !GetAtt DLQueue.Arn
+
+  CustomLabSupport:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn: 
+      - LambdaFunction
+      - HclCookbookBucketPolicy
+      - LoggingBucketPolicy
+    Properties:
+        ServiceToken: !GetAtt LambdaFunction.Arn
+        BucketName: !Ref HclCookbookBucket
+  
+  DLQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AWS::StackName}-dlq
+      KmsMasterKeyId: !Ref EncryptionKey  # Optional: Use KMS key instead of SQS-managed keys
+
+  LambdaFunction:
+      Type: AWS::Lambda::Function
+      Properties:
+          DeadLetterConfig:
+            TargetArn: !GetAtt DLQueue.Arn
+          ReservedConcurrentExecutions: 10
+          VpcConfig:
+            SecurityGroupIds:
+              - !Ref SecurityGroup
+            SubnetIds:
+              - !Ref Subnet3
+              - !Ref Subnet4
+          Code:
+              ZipFile: |
+                  import sys
+                  import subprocess
+                  import os
+
+                  # Install packages in /tmp and add to path
+                  subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--target', '/tmp', 'requests'])
+                  sys.path.insert(0, '/tmp')
+                  subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--target', '/tmp', 'cfnresponse'])
+                  sys.path.insert(0, '/tmp')
+
+
+                  # Now import all required packages
+                  import json
+                  import boto3
+                  import csv
+                  import requests
+                  import zipfile
+                  from io import StringIO, BytesIO
+                  import cfnresponse
+
+                  def lambda_handler(event, context):
+                      print("[INFO] Invocation start")
+                      print(f"[INFO] Event: {json.dumps(event)}")
+                      
+                      # Initialize response data
+                      responseData = {}
+                      
+                      try:
+                          # Check if this is a Custom Resource call
+                          if event.get('RequestType') is None:
+                              # Normal Lambda invocation
+                              bucket_name = event['ResourceProperties']['BucketName']
+                              print(f"[INFO] Using bucket name: {bucket_name}")
+                              
+                              # Download and upload CSV file
+                              csv_key = download_and_upload_csv(bucket_name)
+                              print(f"[INFO] Processing file: {csv_key} from bucket: {bucket_name}")
+                              
+                              metadata = generate_metadata(bucket_name, csv_key)
+                              write_json_to_s3(metadata, bucket_name, "metadata.json")
+                              
+                              return {
+                                  'statusCode': 200,
+                                  'body': json.dumps('Metadata Successfully generated!')
+                              }
+                          else:
+                              # Custom Resource call
+                              bucket_name = event.get('ResourceProperties', {}).get('BucketName')
+                              if not bucket_name:
+                                  raise ValueError("BucketName not provided in ResourceProperties")
+
+                              if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
+                                  # Download and upload CSV file
+                                  csv_key = download_and_upload_csv(bucket_name)
+                                  print(f"[INFO] Processing file: {csv_key} from bucket: {bucket_name}")
+                                  
+                                  metadata = generate_metadata(bucket_name, csv_key)
+                                  write_json_to_s3(metadata, bucket_name, "metadata.json")
+                                  
+                                  responseData = {
+                                      'Message': 'Metadata Successfully generated!',
+                                      'CSVKey': csv_key,
+                                      'MetadataKey': 'metadata.json'
+                                  }
+                                  
+                                  # Send success response
+                                  cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+                                  
+                              elif event['RequestType'] == 'Delete':
+                                  # Handle deletion - optionally clean up resources
+                                  try:
+                                      s3_client = boto3.client('s3')
+                                      # Delete metadata.json
+                                      s3_client.delete_object(Bucket=bucket_name, Key='metadata.json')
+                                      responseData = {'Message': 'Resource deletion completed'}
+                                  except Exception as e:
+                                      print(f"[WARNING] Cleanup during deletion: {str(e)}")
+                                      responseData = {'Message': 'Resource deletion completed with warnings'}
+                                  
+                                  cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+                                  
+                      except Exception as e:
+                          print("[ERROR] Failed to process: {}".format(str(e)))
+                          error_message = str(e)
+                          responseData = {
+                              'Error': error_message
+                          }
+                          
+                          # If this is a Custom Resource call, send failure response
+                          if event.get('RequestType') is not None:
+                              cfnresponse.send(event, context, cfnresponse.FAILED, responseData)
+                              
+                          return {
+                              'statusCode': 500,
+                              'body': json.dumps(f'Error: {error_message}')
+                          }
+
+                  def format_filename(filename):
+                      """Format filename by replacing spaces with hyphens and cleaning up the name"""
+                      # Remove file extension
+                      name_without_ext = filename.rsplit('.', 1)[0]
+                      
+                      # Replace spaces and special characters with hyphens
+                      formatted_name = name_without_ext.lower()  # Convert to lowercase
+                      formatted_name = ''.join(c if c.isalnum() else '-' for c in formatted_name)  # Replace special chars with hyphen
+                      formatted_name = '-'.join(filter(None, formatted_name.split('-')))  # Remove empty segments
+                      
+                      # Add back the .csv extension
+                      return f"{formatted_name}.csv"
+
+                  def download_and_upload_csv(bucket_name):
+                      """Download zip file, extract CSV, and upload to S3"""
+                      try:
+                          # Download the file
+                          url = 'https://www.kaggle.com/api/v1/datasets/download/blueblushed/hospital-dataset-for-practice'
+                          print("Downloading zip file...")
+                          response = requests.get(url, allow_redirects=True)
+                          
+                          # Create a BytesIO object from the downloaded content
+                          zip_data = BytesIO(response.content)
+                          
+                          # Extract CSV from zip
+                          print("Extracting CSV from zip...")
+                          with zipfile.ZipFile(zip_data) as zip_ref:
+                              # Find the CSV file in the zip
+                              csv_files = [f for f in zip_ref.namelist() if f.lower().endswith('.csv')]
+                              if not csv_files:
+                                  raise ValueError("No CSV file found in the zip archive")
+                              
+                              # Get the first CSV file name and format it
+                              original_filename = csv_files[0]
+                              formatted_filename = format_filename(original_filename)
+                              print(f"Found CSV file: {original_filename}")
+                              print(f"Formatted filename: {formatted_filename}")
+                              
+                              # Read the CSV file
+                              with zip_ref.open(original_filename) as csv_file:
+                                  csv_content = csv_file.read()
+                          
+                          # Upload to S3
+                          print(f"Uploading to S3 as {formatted_filename}...")
+                          s3_client = boto3.client('s3')
+                          s3_client.put_object(
+                              Bucket=bucket_name,
+                              Key=formatted_filename,
+                              Body=csv_content
+                          )
+                          print(f"CSV file successfully uploaded to S3 as {formatted_filename}")
+                          
+                          return formatted_filename
+                          
+                      except Exception as e:
+                          print(f"Error in download_and_upload_csv: {str(e)}")
+                          raise
+
+                  def is_numeric(value):
+                      """Check if a string value can be converted to a number"""
+                      try:
+                          float(value)
+                          return True
+                      except (ValueError, TypeError):
+                          return False
+
+                  def generate_metadata(bucket_name, file_key):
+                      """Generate metadata from CSV file"""
+                      s3_client = boto3.client('s3')
+
+                      # Read CSV file from S3
+                      file_content = s3_client.get_object(Bucket=bucket_name, Key=file_key)['Body'].read().decode('utf-8')
+                      csv_reader = csv.reader(StringIO(file_content))
+
+                      # Get headers (column names)
+                      headers = next(csv_reader)
+
+                      # Initialize dictionary to store column types
+                      column_types = {header: "string" for header in headers}
+
+                      # Read first row of data to determine types
+                      try:
+                          first_row = next(csv_reader)
+                          for i, value in enumerate(first_row):
+                              if is_numeric(value):
+                                  column_types[headers[i]] = "bigint"
+                      except StopIteration:
+                          pass  # Handle empty CSV file
+
+                      return {
+                          "healthcare_data": column_types
+                      }
+
+                  def write_json_to_s3(json_data, bucket_name, object_key):
+                      """Write JSON data to S3"""
+                      boto3.client('s3').put_object(
+                          Bucket=bucket_name,
+                          Key=object_key,
+                          Body=json.dumps(json_data, indent=2),
+                          ContentType='application/json'
+                      )
+                      print("Successfully uploaded JSON to s3://{}/{}".format(bucket_name, object_key))
+
+                  # If running the script directly
+                  if __name__ == "__main__":
+                      lambda_handler(None, None)
+          Handler: index.lambda_handler
+          Role: !GetAtt LambdaExecutionRole.Arn
+          Runtime: python3.9
+          Timeout: 600
+
+Outputs:
+
+  DBEndpoint:
+    Description: 'Aurora PostgreSQL Endpoint'
+    Value: !GetAtt 'DBCluster.Endpoint.Address'
+    Export:
+      Name:
+        'Fn::Sub': '${AWS::StackName}-DBEndPoint'
+
+  DBSecret:
+    Description: Database Secret
+    Value: !Ref RDSSecrets
+    Export:
+      Name:
+        'Fn::Sub': '${AWS::StackName}-DBSecrets'

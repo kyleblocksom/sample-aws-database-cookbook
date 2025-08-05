@@ -1,0 +1,203 @@
+{
+  "language": {
+    "selector": {
+      "english": "EN",
+      "spanish": "ES"
+    }
+  },
+  "common": {
+    "navigation": {
+      "back": "Back",
+      "backToTransactions": "Back to Transactions",
+      "backToProducts": "Back to Products",
+      "goHome": "Go Home"
+    },
+    "ui": {
+      "retry": "Retry",
+      "loading": "Loading...",
+      "noImageAvailable": "No image available",
+      "points": "points"
+    },
+    "auth": {
+      "signIn": "Sign in",
+      "signUp": "Sign up",
+      "signOut": "Sign out"
+    }
+  },
+  "header": {
+    "branding": {
+      "xanadu": "Xanadu"
+    },
+    "navigation": {
+      "home": "Home",
+      "products": "Products",
+      "myPoints": "My Points",
+      "signedInAs": "Signed in as",
+      "account": "Account",
+      "pastOrders": "Past Orders"
+    }
+  },
+  "footer": {
+    "branding": {
+      "xanadu": "Xanadu",
+      "tagline": "Your points redemption destination"
+    },
+    "navigation": {
+      "shop": "Shop",
+      "allProducts": "All Products",
+      "categories": "Categories",
+      "points": "Points",
+      "account": "Account",
+      "myProfile": "My Profile",
+      "orderHistory": "Order History"
+    },
+    "support": {
+      "support": "Support",
+      "faq": "FAQ",
+      "contactUs": "Contact Us"
+    }
+  },
+  "home": {
+    "hero": {
+      "welcome": "Welcome to Xanadu Rewards",
+      "welcomeSubtitle": "Discover amazing products and earn rewards with every purchase!",
+      "browseProducts": "Browse Products"
+    },
+    "products": {
+      "featuredProducts": "Featured Products",
+      "viewAll": "View All",
+      "noFeaturedProducts": "No featured products available at the moment.",
+      "shopByCategory": "Shop by Category",
+      "noCategories": "No categories available at the moment.",
+      "shopNow": "Shop Now"
+    },
+    "features": {
+      "howItWorks": "How Xanadu Rewards Works",
+      "shopProducts": "Shop Products",
+      "shopProductsDesc": "Browse our catalog and find products you love.",
+      "earnPoints": "Earn Points",
+      "earnPointsDesc": "Get reward points with every purchase you make.",
+      "redeemRewards": "Redeem Rewards",
+      "redeemRewardsDesc": "Use your points for discounts on future purchases."
+    }
+  },
+  "transactions": {
+    "list": {
+      "yourTransactions": "Your Transactions",
+      "noTransactions": "You don't have any transactions yet.",
+      "startShopping": "Start Shopping"
+    },
+    "table": {
+      "transactionId": "Transaction ID",
+      "date": "Date",
+      "points": "Points",
+      "type": "Type",
+      "status": "Status",
+      "actions": "Actions",
+      "viewDetails": "View Details"
+    },
+    "status": {
+      "completed": "Completed"
+    }
+  },
+  "transactiondetail": {
+    "header": {
+      "transactionDetails": "Transaction Details",
+      "transactionNotFound": "Transaction Not Found",
+      "transactionNotExist": "The transaction you're looking for doesn't exist."
+    },
+    "info": {
+      "transactionInfo": "Transaction Information",
+      "transactionId": "Transaction ID:",
+      "date": "Date:",
+      "points": "Points:",
+      "type": "Type:",
+      "description": "Description:",
+      "status": "Status:",
+      "items": "Items",
+      "notes": "Notes",
+      "totalItems": "Total Items",
+      "totalPoints": "Total Points"
+    }
+  },
+  "cart": {
+    "header": {
+      "yourCart": "Your Cart",
+      "emptyCart": "Your cart is empty",
+      "continueShopping": "Continue Shopping"
+    },
+    "checkout": {
+      "totalPoints": "Total Points:",
+      "checkout": "Checkout"
+    }
+  },
+  "products": {
+    "list": {
+      "allProducts": "All Products",
+      "searchProducts": "Search Products",
+      "filterByCategory": "Filter by Category",
+      "allCategories": "All Categories",
+      "noProducts": "No products found"
+    },
+    "detail": {
+      "addToCart": "Add to Cart",
+      "description": "Description"
+    }
+  },
+  "points": {
+    "dashboard": {
+      "yourPoints": "Your Points",
+      "availablePoints": "Available Points",
+      "howToEarn": "How to Earn More Points"
+    }
+  },
+  "account": {
+    "header": {
+      "yourAccount": "Your Account",
+      "personalInfo": "Personal Information"
+    },
+    "fields": {
+      "email": "Email",
+      "firstName": "First Name",
+      "lastName": "Last Name",
+      "phone": "Phone",
+      "address": "Address",
+      "street": "Street",
+      "city": "City",
+      "state": "State",
+      "zipCode": "Zip Code"
+    }
+  },
+  "auth": {
+    "signin": {
+      "signInToAccount": "Sign in to your account",
+      "username": "Username",
+      "password": "Password",
+      "dontHaveAccount": "Don't have an account?"
+    },
+    "signup": {
+      "username": "Username",
+      "password": "Password",
+      "emailAddress": "Email address",
+      "confirmationCode": "Confirmation Code",
+      "confirmSignUp": "Confirm Sign Up",
+      "alreadyHaveAccount": "Already have an account?"
+    }
+  },
+  "error": {
+    "general": {
+      "pageNotFound": "Page Not Found",
+      "pageNotExist": "The page you're looking for doesn't exist.",
+      "tryAgain": "Try Again",
+      "somethingWentWrong": "Something went wrong"
+    }
+  },
+  "checkout": {
+    "success": {
+      "orderSuccessful": "Order Successful!",
+      "thankYou": "Thank you for your order. Your points have been redeemed successfully.",
+      "viewOrderHistory": "View Order History",
+      "continueShopping": "Continue Shopping"
+    }
+  }
+}

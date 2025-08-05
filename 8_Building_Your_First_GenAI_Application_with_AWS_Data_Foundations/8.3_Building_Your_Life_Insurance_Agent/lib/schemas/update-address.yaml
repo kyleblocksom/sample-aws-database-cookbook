@@ -1,0 +1,140 @@
+# lib/schemas/update-address.yaml
+
+openapi: "3.0.0"
+info:
+  title: "Address Update API"
+  version: "1.0.0"
+  description: "API for updating policy holder address"
+paths:
+  /update-address:
+    post:
+      summary: "Update policy holder's address"
+      description: "Update the mailing address for a policy holder"
+      operationId: "updateAddress"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              required: ["policyNumber", "streetAddress", "city", "state", "zipCode"]
+              properties:
+                policyNumber:
+                  type: "string"
+                  description: "Policy number for address update"
+                  example: "LI-1234567"
+                streetAddress:
+                  type: "string"
+                  description: "Street address including apartment/unit number"
+                  minLength: 5
+                  maxLength: 100
+                  pattern: "^[a-zA-Z0-9\\s\\-\\.,#]+$"
+                  example: "123 Main Street, Apt 4B"
+                city:
+                  type: "string"
+                  description: "City name"
+                  minLength: 2
+                  maxLength: 50
+                  pattern: "^[a-zA-Z\\s\\-]+$"
+                  example: "Boston"
+                state:
+                  type: "string"
+                  description: "Two-letter state code"
+                  pattern: "^[A-Z]{2}$"
+                  example: "MA"
+                zipCode:
+                  type: "string"
+                  description: "5-digit ZIP code or ZIP+4"
+                  pattern: "^\\d{5}(-\\d{4})?$"
+                  example: "02108"
+      responses:
+        "200":
+          description: "Address updated successfully"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required: ["status", "address", "updateTimestamp"]
+                properties:
+                  status:
+                    type: "string"
+                    enum: ["COMPLETED"]
+                    description: "Status of the update operation"
+                    example: "COMPLETED"
+                  address:
+                    type: "object"
+                    required: ["streetAddress", "city", "state", "zipCode"]
+                    properties:
+                      streetAddress:
+                        type: "string"
+                        description: "Updated street address (partially masked)"
+                        example: "*** Main Street, Apt 4B"
+                      city:
+                        type: "string"
+                        description: "Updated city name"
+                        example: "Boston"
+                      state:
+                        type: "string"
+                        description: "Updated state code"
+                        example: "MA"
+                      zipCode:
+                        type: "string"
+                        description: "Updated ZIP code (masked)"
+                        example: "*****"
+                  updateTimestamp:
+                    type: "string"
+                    format: "date-time"
+                    description: "Timestamp of the update"
+                    example: "2025-07-08T14:30:00Z"
+        "400":
+          description: "Bad request - validation error"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required: ["error"]
+                properties:
+                  error:
+                    type: "string"
+                    description: "Error message"
+                    example: "Invalid street address format"
+                  field:
+                    type: "string"
+                    description: "Field that failed validation"
+                    example: "streetAddress"
+        "403":
+          description: "Forbidden - policy number mismatch with session"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required: ["error"]
+                properties:
+                  error:
+                    type: "string"
+                    description: "Error message"
+                    example: "Policy number does not match session policy"
+        "404":
+          description: "Policy not found"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required: ["error"]
+                properties:
+                  error:
+                    type: "string"
+                    description: "Error message"
+                    example: "Policy not found"
+        "500":
+          description: "Internal server error"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required: ["error"]
+                properties:
+                  error:
+                    type: "string"
+                    description: "Error message"
+                    example: "Internal server error"

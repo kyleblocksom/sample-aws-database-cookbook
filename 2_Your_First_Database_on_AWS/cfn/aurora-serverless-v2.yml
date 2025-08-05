@@ -1,0 +1,329 @@
+---
+## Amazon Aurora PostgreSQL Serverless v2 Template
+## Creates Aurora PostgreSQL Serverless v2 Cluster with ability to scale to 0 ACU
+## This sample code is made available under the MIT-0 license. See the LICENSE file.
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: Amazon Aurora PostgreSQL Serverless v2 with scale to zero capability
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Database Configuration"
+        Parameters:
+          - DBEngineVersion
+          - MinCapacity
+          - MaxCapacity
+      - Label:
+          default: "Stack Configuration"
+        Parameters:
+          - StackName
+          - TemplateName
+  Tags:
+    - Key: CreationSource
+      Value: aws-database-cookbook-v2025.8
+    - Key: Purpose
+      Value: Aurora-PostgreSQL-Demo
+
+## Parameters
+Parameters:
+  TemplateName:
+    Type: String
+    Description: Name used for different elements created.
+    Default: aurora-sv2
+  StackName:
+    Type: String
+    Description: Name of the stack that created the VPC and subnets
+    Default: SagemakerJupyterNotebook
+  DBEngineVersion:
+    Description: Select Database Engine Version
+    Type: String
+    Default: 16.8
+  MinCapacity:
+    Description: Minimum Aurora Capacity Units (ACUs)
+    Type: Number
+    Default: 0
+    MinValue: 0
+  MaxCapacity:
+    Description: Maximum Aurora Capacity Units (ACUs)
+    Type: Number
+    Default: 4
+    MinValue: 1
+    
+## Mappings
+Mappings:
+  ClusterSettings:
+    global:
+      dbSchema: mylab
+      dbDriver: pgsql
+      dbFamily: aurora-postgresql16
+      
+## Resources
+Resources:
+  ## IAM roles for S3 import, RDS Proxy, and Enhanced Monitoring
+  rdsS3ImportRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: rds.amazonaws.com
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+      Path: /
+      Description: "Role for Aurora to access S3 via VPC endpoint"
+      Tags:
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+      
+  rdsMonitoringRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: monitoring.rds.amazonaws.com
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
+      Path: /
+      Description: "Role for RDS Enhanced Monitoring"
+      Tags:
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+
+
+  ## Create KMS key for encryption
+  dbEncryptionKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS key for Aurora database encryption
+      EnableKeyRotation: true
+      Tags:
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+
+  ## Create a random generated password and store it as a secret
+  secretDBMasterUser:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: !Sub "Master user credentials for ${TemplateName}-cluster"
+      KmsKeyId: !Ref dbEncryptionKey
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "masteruser"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludePunctuation: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${TemplateName}-DBMasterUser-secret
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  ## Create DB security group
+  dbSecGroupCluster:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !ImportValue 
+        'Fn::Sub': '${StackName}-VpcId'
+      GroupDescription: Aurora Lab Database Firewall
+      Tags:
+        - Key: Name
+          Value: !Sub ${TemplateName}-aupf-internal
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: !ImportValue 
+            'Fn::Sub': '${StackName}-PublicSubnetACidr'
+          Description: Allows AU PG access from Cloud9
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !ImportValue 
+            'Fn::Sub': '${StackName}-SageMakerSecurityGroup'
+          Description: Allows access from SageMaker notebook
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+          Description: Restrict outbound traffic to TCP
+          
+  ## Add self reference ingress rule
+  dbSecGroupClusterIngress:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      GroupId: !GetAtt 'dbSecGroupCluster.GroupId'
+      IpProtocol: tcp
+      FromPort: 0
+      ToPort: 65535
+      SourceSecurityGroupId: !Ref dbSecGroupCluster
+      Description: 'Self Reference'
+
+  ## Create DB subnet group
+  dbSubnets:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub ${TemplateName}-db-subnet-group
+      SubnetIds: !Split 
+        - ','
+        - !ImportValue 
+            'Fn::Sub': '${StackName}-PrivateSubnets'
+      Tags:
+        - Key: Name
+          Value: !Sub ${TemplateName}-db-subnet-group
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  ## Create parameter groups for cluster nodes
+  apgCustomDbParamGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: !Sub ${TemplateName}-dbparamgroup
+      Family: !FindInMap [ ClusterSettings, global, dbFamily ]
+      Parameters:
+        log_rotation_age: '1440'
+        log_rotation_size: '102400'
+      Tags:
+        - Key: Name
+          Value: !Sub ${TemplateName}-dbparamgroup
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  ## Create cluster parameter group
+  apgCustomClusterParamGroup:
+    Type: AWS::RDS::DBClusterParameterGroup
+    Properties:
+      Description: !Sub ${TemplateName}-clusterparamgroup
+      Family: !FindInMap [ ClusterSettings, global, dbFamily ]
+      Parameters:
+        rds.force_ssl: 0
+        shared_preload_libraries: 'pg_stat_statements,pg_hint_plan,auto_explain'
+      Tags:
+        - Key: Name
+          Value: !Sub ${TemplateName}-clusterparamgroup
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  ## Create Aurora Serverless v2 cluster
+  dbCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-postgresql
+      EngineVersion: !Ref DBEngineVersion
+      Port: 5432
+      DBSubnetGroupName: !Ref dbSubnets
+      DBClusterParameterGroupName: !Ref apgCustomClusterParamGroup
+      BackupRetentionPeriod: 1
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref secretDBMasterUser, ':SecretString:username}}' ]]
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref secretDBMasterUser, ':SecretString:password}}' ]]
+      DatabaseName: !FindInMap [ ClusterSettings, global, dbSchema ]
+      StorageEncrypted: true
+      VpcSecurityGroupIds: [ !Ref dbSecGroupCluster ]
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: !Ref MinCapacity
+        MaxCapacity: !Ref MaxCapacity
+      EnableHttpEndpoint: true
+      AutoMinorVersionUpgrade: false
+      EnableIAMDatabaseAuthentication: true
+      AssociatedRoles:
+        - RoleArn: !GetAtt rdsS3ImportRole.Arn
+          FeatureName: s3Import
+      Tags:
+        - Key: Name
+          Value: !Sub ${TemplateName}-cluster
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  ## Deploy the writer instance
+  dbNodeWriter:
+    Type: AWS::RDS::DBInstance
+    DependsOn: dbCluster
+    Properties:
+      DBClusterIdentifier: !Ref dbCluster
+      CopyTagsToSnapshot: true
+      DBInstanceClass: db.serverless
+      DBParameterGroupName: !Ref apgCustomDbParamGroup
+      Engine: aurora-postgresql
+      MonitoringInterval: 60
+      MonitoringRoleArn: !GetAtt rdsMonitoringRole.Arn
+      PubliclyAccessible: false
+      EnablePerformanceInsights: true
+      PerformanceInsightsRetentionPeriod: 7
+      AutoMinorVersionUpgrade: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${TemplateName}-writer
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  ## Deploy a reader instance
+  dbNodeReader:
+    Type: AWS::RDS::DBInstance
+    DependsOn: dbNodeWriter
+    Properties:
+      DBClusterIdentifier: !Ref dbCluster
+      CopyTagsToSnapshot: true
+      DBInstanceClass: db.serverless
+      DBParameterGroupName: !Ref apgCustomDbParamGroup
+      Engine: aurora-postgresql
+      MonitoringInterval: 60
+      MonitoringRoleArn: !GetAtt rdsMonitoringRole.Arn
+      PubliclyAccessible: false
+      EnablePerformanceInsights: true
+      PerformanceInsightsRetentionPeriod: 7
+      AutoMinorVersionUpgrade: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${TemplateName}-reader
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+## Outputs
+Outputs:
+  dbSecGroupCluster:
+    Description: Database Security Group
+    Value: !Ref dbSecGroupCluster
+  clusterEndpoint:
+    Description: Aurora Cluster Endpoint
+    Value: !GetAtt dbCluster.Endpoint.Address
+  readerEndpoint:
+    Description: Aurora Reader Endpoint
+    Value: !GetAtt dbCluster.ReadEndpoint.Address
+  Port:
+    Description: Aurora Endpoint Port
+    Value: !GetAtt dbCluster.Endpoint.Port
+  DatabaseName:
+    Description: Database Name
+    Value: !FindInMap [ ClusterSettings, global, dbSchema ]
+  secretArn:
+    Description: Database Credentials Secret ARN
+    Value: !Ref secretDBMasterUser
+  DBUsername:
+    Description: Database master username
+    Value: masteruser
+  DBUserPassword:
+    Description: Database master user password
+    Value: !Join ['', ['{{resolve:secretsmanager:', !Ref secretDBMasterUser, ':SecretString:password}}' ]]
+  S3ImportRole:
+    Description: IAM Role for S3 Import
+    Value: !GetAtt rdsS3ImportRole.Arn

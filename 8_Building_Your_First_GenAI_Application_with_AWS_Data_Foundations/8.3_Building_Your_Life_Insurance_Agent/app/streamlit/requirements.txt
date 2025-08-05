@@ -1,0 +1,18 @@
+# app/streamlit/requirements.txt
+
+# Core dependencies
+streamlit
+boto3
+python-dotenv
+
+# AWS/Authentication
+streamlit-cognito-auth
+botocore
+
+# Document processing
+langchain-community
+amazon-textract-caller
+
+# Bedrock backoff and retry
+tenacity
+backoff

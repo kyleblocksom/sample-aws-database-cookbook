@@ -1,0 +1,4 @@
+# lambda/db-initializer/requirements.txt
+psycopg2-binary
+boto3
+urllib3

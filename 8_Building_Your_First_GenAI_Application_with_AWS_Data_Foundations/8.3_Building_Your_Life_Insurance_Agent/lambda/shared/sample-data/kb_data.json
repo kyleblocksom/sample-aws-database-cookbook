@@ -1,0 +1,100 @@
+{
+  "bedrock_kb": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "chunks": "Term life insurance provides coverage for a specific period. The policy pays a death benefit if the insured person dies during the term. Premiums are generally lower than whole life insurance.",
+      "metadata": {
+        "title": "Term Life Insurance Overview",
+        "type": "product_info",
+        "category": "policy_types",
+        "policy_number": "*"
+      },
+      "custom_metadata": {
+        "source": "product_documentation",
+        "last_updated": "2024-03-01",
+        "version": "1.0"
+      }
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440001",
+      "chunks": "Premium payments are due monthly on the policy anniversary date. A 30-day grace period applies to all payments. Late payments may result in policy lapse.",
+      "metadata": {
+        "title": "Premium Payment Guidelines",
+        "type": "process_info",
+        "category": "payments",
+        "policy_number": "*"
+      },
+      "custom_metadata": {
+        "source": "operations_manual",
+        "last_updated": "2024-03-01",
+        "version": "1.0"
+      }
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440002",
+      "chunks": "Policy LI-1234567 details: Term life insurance policy with monthly premium of $150.00. Coverage period is 20 years with a death benefit of $500,000.",
+      "metadata": {
+        "title": "Policy Details - LI-1234567",
+        "type": "policy_info",
+        "category": "policy_details",
+        "policy_number": "LI-1234567"
+      },
+      "custom_metadata": {
+        "source": "policy_system",
+        "last_updated": "2024-03-01",
+        "version": "1.0"
+      }
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440003",
+      "chunks": "Policy LI-7654321 details: Term life insurance policy with monthly premium of $200.00. Coverage period is 30 years with a death benefit of $750,000.",
+      "metadata": {
+        "title": "Policy Details - LI-7654321",
+        "type": "policy_info",
+        "category": "policy_details",
+        "policy_number": "LI-7654321"
+      },
+      "custom_metadata": {
+        "source": "policy_system",
+        "last_updated": "2024-03-01",
+        "version": "1.0"
+      }
+    }
+  ],
+  "documents": [
+    {
+      "title": "Term Life Insurance Guide",
+      "content": "Comprehensive guide to understanding term life insurance policies and their benefits.",
+      "metadata": {
+        "type": "guide",
+        "audience": "customer",
+        "last_updated": "2024-03-01",
+        "policy_number": "*"
+      }
+    },
+    {
+      "title": "Payment Processing Manual",
+      "content": "Detailed information about payment processing, grace periods, and policy reinstatement.",
+      "metadata": {
+        "type": "manual",
+        "audience": "internal",
+        "last_updated": "2024-03-01",
+        "policy_number": "*"
+      }
+    }
+  ],
+  "categories": [
+    {
+      "name": "Policy Types",
+      "description": "Information about different types of life insurance policies"
+    },
+    {
+      "name": "Payments",
+      "description": "Information about premium payments and billing"
+    },
+    {
+      "name": "Policy Details",
+      "description": "Specific policy information"
+    }
+  ]
+}

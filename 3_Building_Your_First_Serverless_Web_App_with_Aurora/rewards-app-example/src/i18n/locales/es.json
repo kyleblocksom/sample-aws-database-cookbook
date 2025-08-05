@@ -1,0 +1,203 @@
+{
+  "language": {
+    "selector": {
+      "english": "EN",
+      "spanish": "ES"
+    }
+  },
+  "common": {
+    "navigation": {
+      "back": "Volver",
+      "backToTransactions": "Volver a Transacciones",
+      "backToProducts": "Volver a Productos",
+      "goHome": "Ir a Inicio"
+    },
+    "ui": {
+      "retry": "Reintentar",
+      "loading": "Cargando...",
+      "noImageAvailable": "Imagen no disponible",
+      "points": "puntos"
+    },
+    "auth": {
+      "signIn": "Iniciar sesión",
+      "signUp": "Registrarse",
+      "signOut": "Cerrar sesión"
+    }
+  },
+  "header": {
+    "branding": {
+      "xanadu": "Xanadu"
+    },
+    "navigation": {
+      "home": "Inicio",
+      "products": "Productos",
+      "myPoints": "Mis Puntos",
+      "signedInAs": "Conectado como",
+      "account": "Cuenta",
+      "pastOrders": "Pedidos Anteriores"
+    }
+  },
+  "footer": {
+    "branding": {
+      "xanadu": "Xanadu",
+      "tagline": "Tu destino de canje de puntos"
+    },
+    "navigation": {
+      "shop": "Tienda",
+      "allProducts": "Todos los Productos",
+      "categories": "Categorías",
+      "points": "Puntos",
+      "account": "Cuenta",
+      "myProfile": "Mi Perfil",
+      "orderHistory": "Historial de Pedidos"
+    },
+    "support": {
+      "support": "Soporte",
+      "faq": "Preguntas Frecuentes",
+      "contactUs": "Contáctenos"
+    }
+  },
+  "home": {
+    "hero": {
+      "welcome": "Bienvenido a Xanadu Rewards",
+      "welcomeSubtitle": "¡Descubre productos increíbles y gana recompensas con cada compra!",
+      "browseProducts": "Explorar Productos"
+    },
+    "products": {
+      "featuredProducts": "Productos Destacados",
+      "viewAll": "Ver Todo",
+      "noFeaturedProducts": "No hay productos destacados disponibles en este momento.",
+      "shopByCategory": "Comprar por Categoría",
+      "noCategories": "No hay categorías disponibles en este momento.",
+      "shopNow": "Comprar Ahora"
+    },
+    "features": {
+      "howItWorks": "Cómo Funciona Xanadu Rewards",
+      "shopProducts": "Comprar Productos",
+      "shopProductsDesc": "Explora nuestro catálogo y encuentra productos que te encanten.",
+      "earnPoints": "Ganar Puntos",
+      "earnPointsDesc": "Obtén puntos de recompensa con cada compra que realices.",
+      "redeemRewards": "Canjear Recompensas",
+      "redeemRewardsDesc": "Usa tus puntos para descuentos en futuras compras."
+    }
+  },
+  "transactions": {
+    "list": {
+      "yourTransactions": "Tus Transacciones",
+      "noTransactions": "Aún no tienes transacciones.",
+      "startShopping": "Comenzar a Comprar"
+    },
+    "table": {
+      "transactionId": "ID de Transacción",
+      "date": "Fecha",
+      "points": "Puntos",
+      "type": "Tipo",
+      "status": "Estado",
+      "actions": "Acciones",
+      "viewDetails": "Ver Detalles"
+    },
+    "status": {
+      "completed": "Completado"
+    }
+  },
+  "transactiondetail": {
+    "header": {
+      "transactionDetails": "Detalles de la Transacción",
+      "transactionNotFound": "Transacción No Encontrada",
+      "transactionNotExist": "La transacción que estás buscando no existe."
+    },
+    "info": {
+      "transactionInfo": "Información de la Transacción",
+      "transactionId": "ID de Transacción:",
+      "date": "Fecha:",
+      "points": "Puntos:",
+      "type": "Tipo:",
+      "description": "Descripción:",
+      "status": "Estado:",
+      "items": "Artículos",
+      "notes": "Notas",
+      "totalItems": "Total de Artículos",
+      "totalPoints": "Puntos Totales"
+    }
+  },
+  "cart": {
+    "header": {
+      "yourCart": "Tu Carrito",
+      "emptyCart": "Tu carrito está vacío",
+      "continueShopping": "Continuar Comprando"
+    },
+    "checkout": {
+      "totalPoints": "Puntos Totales:",
+      "checkout": "Finalizar Compra"
+    }
+  },
+  "products": {
+    "list": {
+      "allProducts": "Todos los Productos",
+      "searchProducts": "Buscar Productos",
+      "filterByCategory": "Filtrar por Categoría",
+      "allCategories": "Todas las Categorías",
+      "noProducts": "No se encontraron productos"
+    },
+    "detail": {
+      "addToCart": "Añadir al Carrito",
+      "description": "Descripción"
+    }
+  },
+  "points": {
+    "dashboard": {
+      "yourPoints": "Tus Puntos",
+      "availablePoints": "Puntos Disponibles",
+      "howToEarn": "Cómo Ganar Más Puntos"
+    }
+  },
+  "account": {
+    "header": {
+      "yourAccount": "Tu Cuenta",
+      "personalInfo": "Información Personal"
+    },
+    "fields": {
+      "email": "Correo Electrónico",
+      "firstName": "Nombre",
+      "lastName": "Apellido",
+      "phone": "Teléfono",
+      "address": "Dirección",
+      "street": "Calle",
+      "city": "Ciudad",
+      "state": "Estado",
+      "zipCode": "Código Postal"
+    }
+  },
+  "auth": {
+    "signin": {
+      "signInToAccount": "Inicia sesión en tu cuenta",
+      "username": "Nombre de usuario",
+      "password": "Contraseña",
+      "dontHaveAccount": "¿No tienes una cuenta?"
+    },
+    "signup": {
+      "username": "Nombre de usuario",
+      "password": "Contraseña",
+      "emailAddress": "Dirección de correo electrónico",
+      "confirmationCode": "Código de confirmación",
+      "confirmSignUp": "Confirmar Registro",
+      "alreadyHaveAccount": "¿Ya tienes una cuenta?"
+    }
+  },
+  "error": {
+    "general": {
+      "pageNotFound": "Página No Encontrada",
+      "pageNotExist": "La página que estás buscando no existe.",
+      "tryAgain": "Intentar de Nuevo",
+      "somethingWentWrong": "Algo salió mal"
+    }
+  },
+  "checkout": {
+    "success": {
+      "orderSuccessful": "¡Pedido Exitoso!",
+      "thankYou": "Gracias por tu pedido. Tus puntos han sido canjeados con éxito.",
+      "viewOrderHistory": "Ver Historial de Pedidos",
+      "continueShopping": "Continuar Comprando"
+    }
+  }
+}

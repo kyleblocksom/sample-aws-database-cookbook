@@ -1,0 +1,2134 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Master CloudFormation template for Xanadu Rewards Application with Aurora Serverless v2 and Networking'
+
+Parameters:
+  EnvironmentName:
+    Description: Environment name - dev, test, or prod
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+  
+  DBName:
+    Description: Database name
+    Type: String
+    Default: postgres
+  
+  DBUsername:
+    Description: Database master username
+    Type: String
+    Default: masteruser
+  
+  DBReadWriteUsername:
+    Description: Database username for read-write access
+    Type: String
+    Default: rewards_rw
+  
+  DBEngineVersion:
+    Description: Select Database Engine Version
+    Type: String
+    Default: 16.8
+  
+  MinCapacity:
+    Description: Minimum Aurora Capacity Units (ACUs)
+    Type: Number
+    Default: 0
+    MinValue: 0
+  
+  MaxCapacity:
+    Description: Maximum Aurora Capacity Units (ACUs)
+    Type: Number
+    Default: 4
+    MinValue: 1
+  
+  GitHubOwner:
+    Description: GitHub repository owner
+    Type: String
+    Default: wanchen6
+  
+  GitHubRepo:
+    Description: GitHub repository name
+    Type: String
+    Default: rewards-app-example
+  
+  GitHubOAuthToken:
+    Description: GitHub OAuth token
+    Type: String
+    NoEcho: true
+  
+  S3BucketName:
+    Description: S3 bucket name for application assets
+    Type: String
+    Default: xanadu-app-assets
+
+  S3ImagesFolderName:
+    Description: S3 folder name for images
+    Type: String
+    Default: images
+    
+  LambdaCodeS3Key:
+    Description: S3 key for the Xanadu Rewards App Lambda function code ZIP file
+    Type: String
+    Default: lambda-code/xanadu-app-lambda-functions.zip  
+
+  LambdaLayerS3Key:
+    Description: S3 key for the Xanadu Rewards App Lambda function code ZIP file
+    Type: String
+    Default: lambda-code/lambda-layer.zip
+
+  LambdaDBInitCodeS3Key:
+    Description: S3 key for the database initialization Lambda function code ZIP file
+    Type: String
+    Default: lambda-code/db-init-function.zip
+  
+  LambdaImageUrlCodeS3Key:
+    Description: S3 key for the image processing Lambda function code ZIP file
+    Type: String
+    Default: lambda-code/image-processor-function.zip
+
+  LambdaCorsCodeS3Key:
+    Description: S3 key for the CORS enablement Lambda function code ZIP file
+    Type: String
+    Default: lambda-code/cors-lambda.zip
+
+Mappings:
+  NetworkSettings:
+    global:
+      vpcCidr: 10.0.0.0/16
+
+Resources:
+  # VPC and Networking Components
+  MainVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      CidrBlock: !FindInMap [ NetworkSettings, global, vpcCidr ]
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${AWS::StackName}-${EnvironmentName}-vpc-${StackSuffix}'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+          
+  # VPC Flow Log
+  VPCFlowLog:
+    Type: AWS::EC2::FlowLog
+    Properties:
+      ResourceId: !Ref MainVPC
+      ResourceType: VPC
+      TrafficType: ALL
+      LogDestinationType: cloud-watch-logs
+      LogGroupName: !Ref VPCFlowLogGroup
+      DeliverLogsPermissionArn: !GetAtt VPCFlowLogRole.Arn
+      
+  VPCFlowLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub 
+        - '/aws/vpc/flowlogs/${AWS::StackName}-${EnvironmentName}-flowlogs-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      RetentionInDays: 7
+      KmsKeyId: !GetAtt LogsKMSKey.Arn
+      
+  # KMS key for CloudWatch Logs encryption
+  LogsKMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS key for encrypting CloudWatch Logs
+      BypassPolicyLockoutSafetyCheck: true
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: Allow CloudFormation Service
+            Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action:
+              - 'kms:CreateKey'
+              - 'kms:DescribeKey'
+              - 'kms:EnableKeyRotation'
+              - 'kms:GetKeyPolicy'
+              - 'kms:PutKeyPolicy'
+              - 'kms:CreateAlias'
+              - 'kms:TagResource'
+              - 'kms:ScheduleKeyDeletion'
+              - 'kms:CancelKeyDeletion'
+            Resource: '*'
+          - Sid: Allow CloudWatch Logs
+            Effect: Allow
+            Principal:
+              Service: logs.amazonaws.com
+            Action:
+              - 'kms:Encrypt*'
+              - 'kms:Decrypt*'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey*'
+              - 'kms:Describe*'
+            Resource: '*'
+          - Sid: Allow use of the key
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt KeyUserRole.Arn
+            Action:
+              - 'kms:DescribeKey'
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey'
+              - 'kms:GenerateDataKeyWithoutPlaintext'
+            Resource: '*'
+            
+  LogsKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub 
+        - 'alias/${AWS::StackName}-${EnvironmentName}-logs-key-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      TargetKeyId: !Ref LogsKMSKey
+      
+  VPCFlowLogRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: vpc-flow-logs.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: flowlogs-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                Resource: !GetAtt VPCFlowLogGroup.Arn
+
+  # Create an IGW & attach it to the VPC
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    DependsOn: MainVPC
+    DeletionPolicy: Delete
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${AWS::StackName}-${EnvironmentName}-igw-${StackSuffix}'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+  
+  AttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    DeletionPolicy: Delete
+    Properties:
+      VpcId: !Ref MainVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: !Select [ 0, !Cidr [ !GetAtt MainVPC.CidrBlock, 4, 8 ]]
+      AvailabilityZone: !Select [ 0, !GetAZs ]    # Get the first AZ in the list
+      MapPublicIpOnLaunch: false
+      Tags:
+      - Key: Name
+        Value: !Sub 
+          - '${AWS::StackName}-${EnvironmentName}-PublicA-${StackSuffix}'
+          - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      - Key: CreationSource
+        Value: aws-database-cookbook-v2025.8
+  
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: !Select [ 1, !Cidr [ !GetAtt MainVPC.CidrBlock, 4, 8 ]]
+      AvailabilityZone: !Select [ 1, !GetAZs ]    # Get the second AZ in the list
+      MapPublicIpOnLaunch: false
+      Tags:
+      - Key: Name
+        Value: !Sub 
+          - '${AWS::StackName}-${EnvironmentName}-PublicB-${StackSuffix}'
+          - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      - Key: CreationSource
+        Value: aws-database-cookbook-v2025.8
+  
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: !Select [ 2, !Cidr [ !GetAtt MainVPC.CidrBlock, 4, 8 ]]
+      AvailabilityZone: !Select [ 0, !GetAZs ]    # Get the first AZ in the list
+      Tags:
+      - Key: Name
+        Value: !Sub 
+          - '${AWS::StackName}-${EnvironmentName}-PrivateA-${StackSuffix}'
+          - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      - Key: CreationSource
+        Value: aws-database-cookbook-v2025.8
+  
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: !Select [ 3, !Cidr [ !GetAtt MainVPC.CidrBlock, 4, 8 ]]
+      AvailabilityZone: !Select [ 1, !GetAZs ]    # Get the second AZ in the list
+      Tags:
+      - Key: Name
+        Value: !Sub 
+          - '${AWS::StackName}-${EnvironmentName}-PrivateB-${StackSuffix}'
+          - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      - Key: CreationSource
+        Value: aws-database-cookbook-v2025.8  
+
+  # Route tables for our subnets
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MainVPC
+      Tags:
+      - Key: Name
+        Value: !Sub 
+          - '${AWS::StackName}-${EnvironmentName}-public-rtb-${StackSuffix}'
+          - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      - Key: CreationSource
+        Value: aws-database-cookbook-v2025.8
+  
+  # Public route table has direct routing to IGW
+  PublicRouteToIGW:   
+    Type: AWS::EC2::Route
+    DependsOn: AttachIGW
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # Private route table
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MainVPC
+      Tags:
+      - Key: Name
+        Value: !Sub 
+          - '${AWS::StackName}-${EnvironmentName}-private-rtb-${StackSuffix}'
+          - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      - Key: CreationSource
+        Value: aws-database-cookbook-v2025.8
+  
+  # Private route table can access web via NAT
+  PrivateRoute1:            
+    Type: AWS::EC2::Route
+    DependsOn: NATGateway
+    DeletionPolicy: Delete
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      # Route traffic through the NAT Gateway
+      NatGatewayId: !Ref NATGateway
+
+  # Attach the public subnets to public route tables,
+  # and attach the private subnets to private route tables
+  PublicSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+  
+  PublicSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+  
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+  
+  PrivateSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+
+  # A NAT Gateway
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    DependsOn: 
+      - AttachIGW
+      - ElasticIPAddress
+    DeletionPolicy: Delete
+    Properties:
+      AllocationId: !GetAtt ElasticIPAddress.AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags:
+      - Key: Name
+        Value: !Sub 
+          - '${AWS::StackName}-${EnvironmentName}-natgw-${StackSuffix}'
+          - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      - Key: CreationSource
+        Value: aws-database-cookbook-v2025.8
+  
+  ElasticIPAddress:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachIGW
+    DeletionPolicy: Delete
+    Properties:
+      Domain: vpc  
+
+  # KeyUser role for KMS access
+  KeyUserRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 
+        - '${AWS::StackName}-${EnvironmentName}-KeyUser-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              Service: logs.amazonaws.com
+            Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              Service: sqs.amazonaws.com
+            Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              Service: secretsmanager.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  # IAM Role for Lambda to access S3 and RDS
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AmazonAPIGatewayAdministrator
+      Policies:
+        - PolicyName: RDSProxyAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - rds-db:connect
+                Resource: 
+                  - !Sub arn:aws:rds-db:${AWS::Region}:${AWS::AccountId}:dbuser:*/${DBReadWriteUsername}
+                  - !Sub arn:aws:rds-db:${AWS::Region}:${AWS::AccountId}:dbuser:*/${DBUsername}
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref DBMasterUserSecret
+                  - !Ref DBAppUserSecret
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:DescribeKey
+                Resource:
+                  - !GetAtt SecretsKMSKey.Arn
+        - PolicyName: SQSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource:
+                  - !GetAtt DBInitFunctionDLQ.Arn
+                  - !GetAtt ImageProcessorFunctionDLQ.Arn
+                  - !GetAtt ApiLambdaFunctionDLQ.Arn
+                  - !GetAtt ApiGatewayCorsFunctionDLQ.Arn
+        - PolicyName: RDSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - rds:DescribeDBClusters
+                  - rds:DescribeDBInstances
+                Resource: 
+                  - !Sub arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster:${DBCluster}
+                  - !Sub arn:aws:rds:${AWS::Region}:${AWS::AccountId}:db:*
+        - PolicyName: APIGatewayAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - apigateway:GET
+                Resource: !Sub arn:aws:apigateway:${AWS::Region}::/apikeys/*
+                
+  # IAM roles for S3 import and RDS Proxy
+  RDSS3ImportRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: rds.amazonaws.com
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+      Path: /
+
+  RDSProxyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: rds.amazonaws.com
+      Path: /
+      Policies:
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref DBAppUserSecret
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                Resource: !GetAtt SecretsKMSKey.Arn
+                Condition:
+                  StringEquals:
+                    'kms:ViaService': !Sub 'secretsmanager.${AWS::Region}.amazonaws.com'
+
+  # Create a random generated password and store it as a secret
+  # Create KMS key for secrets encryption
+  SecretsKMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS key for encrypting Secrets Manager secrets
+      BypassPolicyLockoutSafetyCheck: true
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: Allow CloudFormation Service
+            Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action:
+              - 'kms:CreateKey'
+              - 'kms:DescribeKey'
+              - 'kms:EnableKeyRotation'
+              - 'kms:GetKeyPolicy'
+              - 'kms:PutKeyPolicy'
+              - 'kms:CreateAlias'
+              - 'kms:TagResource'
+              - 'kms:ScheduleKeyDeletion'
+              - 'kms:CancelKeyDeletion'
+            Resource: '*'
+          - Sid: Allow Secrets Manager Service
+            Effect: Allow
+            Principal:
+              Service: secretsmanager.amazonaws.com
+            Action:
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey*'
+              - 'kms:DescribeKey'
+            Resource: '*'
+            Condition:
+              StringEquals:
+                'kms:ViaService': !Sub 'secretsmanager.${AWS::Region}.amazonaws.com'
+          - Sid: Allow use of the key
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt KeyUserRole.Arn
+            Action:
+              - 'kms:DescribeKey'
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey'
+              - 'kms:GenerateDataKeyWithoutPlaintext'
+            Resource: '*'
+            
+  SecretsKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub 
+        - 'alias/${AWS::StackName}-${EnvironmentName}-secrets-key-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      TargetKeyId: !Ref SecretsKMSKey
+            
+  DBMasterUserSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 
+        - '${AWS::StackName}-${EnvironmentName}-db-secret-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      Description: !Sub 
+        - 'Master user credentials for ${AWS::StackName}-${EnvironmentName}-cluster-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      KmsKeyId: !Ref SecretsKMSKey
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username": "${DBUsername}"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludePunctuation: true
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${AWS::StackName}-${EnvironmentName}-DBMasterUser-secret-${StackSuffix}'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8  
+
+  DBAppUserSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 
+        - '${AWS::StackName}-${EnvironmentName}-app-user-secret-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      Description: !Sub 
+        - 'Application user credentials for ${AWS::StackName}-${EnvironmentName}-cluster-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      KmsKeyId: !Ref SecretsKMSKey
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "rewards_rw"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludePunctuation: true
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${AWS::StackName}-${EnvironmentName}-DBAppUser-secret-${StackSuffix}'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+  
+  # Create DB security group
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref MainVPC
+      GroupDescription: Aurora Database Security Group
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${AWS::StackName}-${EnvironmentName}-db-sg-${StackSuffix}'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: !GetAtt MainVPC.CidrBlock
+          Description: Allows PostgreSQL access from within VPC
+
+  # Add self reference ingress rule
+  # Split the self-reference ingress rule into specific ports
+  DBSecurityGroupSelfIngressPostgres:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      GroupId: !GetAtt 'DBSecurityGroup.GroupId'
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !Ref DBSecurityGroup
+      Description: 'Self Reference - PostgreSQL'
+      
+  # Add specific egress rules
+  # Allow HTTPS to the internet for S3 and Secrets Manager access
+  DBSecurityGroupEgressHTTPS:
+    Type: 'AWS::EC2::SecurityGroupEgress'
+    Properties:
+      GroupId: !GetAtt 'DBSecurityGroup.GroupId'
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: '0.0.0.0/0'
+      Description: 'Allow HTTPS outbound traffic to internet for AWS services'
+      
+  # Use VPC CIDR instead of open internet
+  DBSecurityGroupEgressHTTP:
+    Type: 'AWS::EC2::SecurityGroupEgress'
+    Properties:
+      GroupId: !GetAtt 'DBSecurityGroup.GroupId'
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      # Restrict to VPC CIDR instead of open internet
+      CidrIp: !GetAtt MainVPC.CidrBlock
+      Description: 'Allow HTTP outbound traffic within VPC'
+      
+  # Use VPC DNS endpoints instead of open internet
+  DBSecurityGroupEgressDNS:
+    Type: 'AWS::EC2::SecurityGroupEgress'
+    Properties:
+      GroupId: !GetAtt 'DBSecurityGroup.GroupId'
+      IpProtocol: tcp
+      FromPort: 53
+      ToPort: 53
+      # Restrict to VPC CIDR instead of open internet
+      CidrIp: !GetAtt MainVPC.CidrBlock
+      Description: 'Allow DNS (TCP) outbound traffic within VPC'
+      
+  # Use VPC DNS endpoints instead of open internet
+  DBSecurityGroupEgressDNSUDP:
+    Type: 'AWS::EC2::SecurityGroupEgress'
+    Properties:
+      GroupId: !GetAtt 'DBSecurityGroup.GroupId'
+      IpProtocol: udp
+      FromPort: 53
+      ToPort: 53
+      # Restrict to VPC CIDR instead of open internet
+      CidrIp: !GetAtt MainVPC.CidrBlock
+      Description: 'Allow DNS (UDP) outbound traffic within VPC'
+      
+  # Replace wide port range with specific ports needed
+  DBSecurityGroupEgressVPCPostgres:
+    Type: 'AWS::EC2::SecurityGroupEgress'
+    Properties:
+      GroupId: !GetAtt 'DBSecurityGroup.GroupId'
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      CidrIp: !GetAtt MainVPC.CidrBlock
+      Description: 'Allow PostgreSQL traffic within VPC'
+      
+  # Allow ephemeral ports for return traffic
+  DBSecurityGroupEgressEphemeral:
+    Type: 'AWS::EC2::SecurityGroupEgress'
+    Properties:
+      GroupId: !GetAtt 'DBSecurityGroup.GroupId'
+      IpProtocol: tcp
+      FromPort: 1024
+      ToPort: 65535
+      CidrIp: '0.0.0.0/0'
+      Description: 'Allow ephemeral port range for return traffic'
+
+  # Create DB subnet group
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: !Sub 
+        - '${AWS::StackName}-${EnvironmentName}-subnet-group-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      DBSubnetGroupDescription: !Sub 
+        - '${AWS::StackName}-${EnvironmentName}-db-subnet-group-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      SubnetIds: 
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${AWS::StackName}-${EnvironmentName}-db-subnet-group-${StackSuffix}'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8  
+          
+  # Create parameter groups for cluster nodes
+  DBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      DBParameterGroupName: !Sub 
+        - '${AWS::StackName}-${EnvironmentName}-dbparamgroup-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      Description: !Sub 
+        - '${AWS::StackName}-${EnvironmentName}-dbparamgroup-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      Family: aurora-postgresql16
+      Parameters:
+        log_rotation_age: '1440'
+        log_rotation_size: '102400'
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${AWS::StackName}-${EnvironmentName}-dbparamgroup-${StackSuffix}'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  # Create cluster parameter group
+  DBClusterParameterGroup:
+    Type: AWS::RDS::DBClusterParameterGroup
+    Properties:
+      DBClusterParameterGroupName: !Sub 
+        - '${AWS::StackName}-${EnvironmentName}-clusterparamgroup-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      Description: !Sub 
+        - '${AWS::StackName}-${EnvironmentName}-clusterparamgroup-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      Family: aurora-postgresql16
+      Parameters:
+        rds.force_ssl: 0
+        shared_preload_libraries: 'pg_stat_statements,pg_hint_plan,auto_explain'
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${AWS::StackName}-${EnvironmentName}-clusterparamgroup-${StackSuffix}'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  # Create Aurora Serverless v2 cluster
+  DBCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-postgresql
+      EngineVersion: !Ref DBEngineVersion
+      Port: 5432
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DBClusterParameterGroupName: !Ref DBClusterParameterGroup
+      DBClusterIdentifier: !Sub 
+        - '${AWS::StackName}-${EnvironmentName}-cluster-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      BackupRetentionPeriod: 1
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref DBMasterUserSecret, ':SecretString:username}}' ]]
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref DBMasterUserSecret, ':SecretString:password}}' ]]
+      DatabaseName: !Ref DBName
+      StorageEncrypted: true
+      VpcSecurityGroupIds: [ !Ref DBSecurityGroup ]
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: !Ref MinCapacity
+        MaxCapacity: !Ref MaxCapacity
+      EnableHttpEndpoint: true
+      AutoMinorVersionUpgrade: false
+      StorageType: aurora
+      EnableIAMDatabaseAuthentication: true
+      AssociatedRoles:
+        - RoleArn: !GetAtt RDSS3ImportRole.Arn
+          FeatureName: s3Import
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${AWS::StackName}-${EnvironmentName}-cluster-${StackSuffix}'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8  
+  
+  # Deploy the writer instance
+  DBInstanceWriter:
+    Type: AWS::RDS::DBInstance
+    DependsOn: DBCluster
+    Properties:
+      DBClusterIdentifier: !Ref DBCluster
+      # Use a generated name instead of explicit name
+      # DBInstanceIdentifier: !Sub ${AWS::StackName}-${EnvironmentName}-writer
+      # CopyTagsToSnapshot is not supported, removing it
+      DBInstanceClass: db.serverless
+      DBParameterGroupName: !Ref DBParameterGroup
+      Engine: aurora-postgresql
+      MonitoringInterval: 60
+      MonitoringRoleArn: !GetAtt RDSMonitoringRole.Arn
+      PubliclyAccessible: false
+      EnablePerformanceInsights: true
+      PerformanceInsightsRetentionPeriod: 7
+      AutoMinorVersionUpgrade: false
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${AWS::StackName}-${EnvironmentName}-writer-${StackSuffix}'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+          
+  # RDS Monitoring Role
+  RDSMonitoringRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: monitoring.rds.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
+
+  # Deploy a reader instance
+  DBInstanceReader:
+    Type: AWS::RDS::DBInstance
+    DependsOn: DBInstanceWriter
+    Properties:
+      DBClusterIdentifier: !Ref DBCluster
+      DBInstanceClass: db.serverless
+      DBParameterGroupName: !Ref DBParameterGroup
+      Engine: aurora-postgresql
+      MonitoringInterval: 60
+      MonitoringRoleArn: !GetAtt RDSMonitoringRole.Arn
+      PubliclyAccessible: false
+      EnablePerformanceInsights: true
+      PerformanceInsightsRetentionPeriod: 7
+      AutoMinorVersionUpgrade: false
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${AWS::StackName}-${EnvironmentName}-reader-${StackSuffix}'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8  
+  
+  # Create RDS Proxy
+  RDSProxy:
+    Type: AWS::RDS::DBProxy
+    Properties:
+      DBProxyName: !Sub 
+        - '${AWS::StackName}-${EnvironmentName}-proxy-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      EngineFamily: POSTGRESQL
+      RoleArn: !GetAtt RDSProxyRole.Arn
+      Auth:
+        - AuthScheme: SECRETS
+          SecretArn: !Ref DBAppUserSecret
+          IAMAuth: REQUIRED
+      VpcSubnetIds: 
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+      VpcSecurityGroupIds: [ !Ref DBSecurityGroup ]
+      RequireTLS: true
+      DebugLogging: false
+      IdleClientTimeout: 1800
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${AWS::StackName}-${EnvironmentName}-proxy-${StackSuffix}'
+            - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  # Create RDS Proxy Target Group
+  RDSProxyTargetGroup:
+    Type: AWS::RDS::DBProxyTargetGroup
+    Properties:
+      DBProxyName: !Ref RDSProxy
+      TargetGroupName: default
+      DBClusterIdentifiers: [ !Ref DBCluster ]
+      ConnectionPoolConfigurationInfo:
+        MaxConnectionsPercent: 100
+        MaxIdleConnectionsPercent: 50
+        ConnectionBorrowTimeout: 120
+        InitQuery: "SET timezone='UTC'; SET application_name='rewards_app';"
+
+  # Lambda Layer for shared dependencies
+  LambdaDependenciesLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: !Sub 
+        - '${AWS::StackName}-${EnvironmentName}-dependencies-layer-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      Description: Layer containing shared dependencies for Lambda functions
+      Content:
+        S3Bucket: !Ref S3BucketName
+        S3Key: !Ref LambdaLayerS3Key
+      CompatibleRuntimes:
+        - nodejs22.x
+
+  # Lambda function to initialize database schema
+  DBInitFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - NATGateway
+    Properties:
+      FunctionName: !Sub 
+        - '${EnvironmentName}-${StackSuffix}-db-init'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: !Ref LambdaDBInitCodeS3Key
+      Layers:
+        - !Ref LambdaDependenciesLayer
+      Runtime: nodejs22.x
+      Timeout: 600
+      MemorySize: 512
+      ReservedConcurrentExecutions: 5
+      DeadLetterConfig:
+        TargetArn: !GetAtt DBInitFunctionDLQ.Arn
+      Environment:
+        Variables:
+          DB_SECRET_ARN: !Ref DBMasterUserSecret
+          APP_USER_SECRET_ARN: !Ref DBAppUserSecret
+          DB_ENDPOINT: !GetAtt DBCluster.Endpoint.Address
+          DB_NAME: !Ref DBName
+          S3_BUCKET: !Ref S3BucketName
+          REGION: !Ref AWS::Region
+      KmsKeyArn: !GetAtt LambdaEnvKMSKey.Arn
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref DBSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+          
+  # Dead Letter Queue for DB Init Lambda
+  DBInitFunctionDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 
+        - '${EnvironmentName}-${StackSuffix}-db-init-dlq'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      MessageRetentionPeriod: 1209600 # 14 days
+      KmsMasterKeyId: !GetAtt SQSKMSKey.Arn
+      
+  # KMS key for SQS encryption
+  SQSKMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS key for encrypting SQS messages
+      BypassPolicyLockoutSafetyCheck: true
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: Allow CloudFormation Service
+            Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action:
+              - 'kms:CreateKey'
+              - 'kms:DescribeKey'
+              - 'kms:EnableKeyRotation'
+              - 'kms:GetKeyPolicy'
+              - 'kms:PutKeyPolicy'
+              - 'kms:CreateAlias'
+              - 'kms:TagResource'
+              - 'kms:ScheduleKeyDeletion'
+              - 'kms:CancelKeyDeletion'
+            Resource: '*'
+          - Sid: Allow SQS Service
+            Effect: Allow
+            Principal:
+              Service: sqs.amazonaws.com
+            Action:
+              - 'kms:Encrypt*'
+              - 'kms:Decrypt*'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey*'
+              - 'kms:Describe*'
+            Resource: '*'
+          - Sid: Allow use of the key
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt KeyUserRole.Arn
+            Action:
+              - 'kms:DescribeKey'
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey'
+              - 'kms:GenerateDataKeyWithoutPlaintext'
+            Resource: '*'
+            
+  SQSKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub 
+        - 'alias/${EnvironmentName}-${StackSuffix}-sqs-key'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      TargetKeyId: !Ref SQSKMSKey
+          
+  # Custom resource to trigger database initialization
+  DBInitInvoke:
+    Type: Custom::DBInit
+    DependsOn:
+      - DBInstanceWriter
+      - DBInstanceReader
+      - DBAppUserSecret
+    Properties:
+      ServiceToken: !GetAtt DBInitFunction.Arn
+      Region: !Ref AWS::Region
+
+  # Custom resource to trigger image processing
+  ImageProcessorInvoke:
+    Type: Custom::ImageProcessor
+    DependsOn:
+      - DBInitInvoke
+    Properties:
+      ServiceToken: !GetAtt ImageProcessorFunction.Arn
+      Region: !Ref AWS::Region
+
+  # Lambda function to upload images to S3 and create presigned URLs
+  ImageProcessorFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - NATGateway
+    Properties:
+      FunctionName: !Sub 
+        - '${EnvironmentName}-${StackSuffix}-image-processor'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: !Ref LambdaImageUrlCodeS3Key
+      Layers:
+        - !Ref LambdaDependenciesLayer
+      Runtime: nodejs22.x
+      Timeout: 300
+      MemorySize: 256
+      ReservedConcurrentExecutions: 5
+      DeadLetterConfig:
+        TargetArn: !GetAtt ImageProcessorFunctionDLQ.Arn
+      Environment:
+        Variables:
+          DB_ENDPOINT: !GetAtt DBCluster.Endpoint.Address
+          DB_NAME: !Ref DBName
+          SECRET_ARN: !Ref DBMasterUserSecret
+          S3_BUCKET: !Ref S3BucketName
+          S3_IMAGES_FOLDER: !Ref S3ImagesFolderName
+          REGION: !Ref AWS::Region
+      KmsKeyArn: !GetAtt LambdaEnvKMSKey.Arn
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref DBSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+          
+  # Dead Letter Queue for Image Processor Lambda
+  ImageProcessorFunctionDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 
+        - '${EnvironmentName}-${StackSuffix}-image-processor-dlq'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      MessageRetentionPeriod: 1209600 # 14 days
+      KmsMasterKeyId: !GetAtt SQSKMSKey.Arn
+
+  # Cognito Resources
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub 
+        - '${AWS::StackName}-${EnvironmentName}-xanadu-user-pool-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: name
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+      MfaConfiguration: 'OPTIONAL'
+      EnabledMfas:
+          - SOFTWARE_TOKEN_MFA
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub 
+        - '${AWS::StackName}-${EnvironmentName}-xanadu-app-client-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_PASSWORD_AUTH
+      PreventUserExistenceErrors: ENABLED
+      SupportedIdentityProviders:
+        - COGNITO  
+  
+  # API Lambda Function
+  ApiLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 
+        - '${EnvironmentName}-${StackSuffix}-xanadu-api-handler'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      Handler: src/index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: !Ref LambdaCodeS3Key
+      Runtime: nodejs22.x
+      Timeout: 30
+      MemorySize: 256
+      ReservedConcurrentExecutions: 50
+      DeadLetterConfig:
+        TargetArn: !GetAtt ApiLambdaFunctionDLQ.Arn
+      Environment:
+        Variables:
+          DB_NAME: !Ref DBName
+          DB_USERNAME: !Ref DBReadWriteUsername
+          DB_PROXY_ENDPOINT: !GetAtt RDSProxy.Endpoint
+          REGION: !Ref AWS::Region
+          NODE_ENV: !Ref EnvironmentName
+      KmsKeyArn: !GetAtt LambdaEnvKMSKey.Arn
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref DBSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+          
+  # KMS key for Lambda environment variables encryption
+  LambdaEnvKMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS key for encrypting Lambda environment variables
+      BypassPolicyLockoutSafetyCheck: true
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: Allow CloudFormation Service
+            Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action:
+              - 'kms:CreateKey'
+              - 'kms:DescribeKey'
+              - 'kms:EnableKeyRotation'
+              - 'kms:GetKeyPolicy'
+              - 'kms:PutKeyPolicy'
+              - 'kms:CreateAlias'
+              - 'kms:TagResource'
+              - 'kms:ScheduleKeyDeletion'
+              - 'kms:CancelKeyDeletion'
+            Resource: '*'
+          - Sid: Allow Lambda Service
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action:
+              - 'kms:Encrypt*'
+              - 'kms:Decrypt*'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey*'
+              - 'kms:Describe*'
+            Resource: '*'
+          - Sid: Allow use of the key
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt KeyUserRole.Arn
+            Action:
+              - 'kms:DescribeKey'
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey'
+              - 'kms:GenerateDataKeyWithoutPlaintext'
+            Resource: '*'
+            
+  LambdaEnvKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub 
+        - 'alias/${EnvironmentName}-${StackSuffix}-lambda-env-key'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      TargetKeyId: !Ref LambdaEnvKMSKey
+          
+  # Dead Letter Queue for API Lambda
+  ApiLambdaFunctionDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 
+        - '${EnvironmentName}-${StackSuffix}-api-lambda-dlq'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      MessageRetentionPeriod: 1209600 # 14 days
+      KmsMasterKeyId: !GetAtt SQSKMSKey.Arn
+
+  # API Gateway Resources
+  ApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub 
+        - '${AWS::StackName}-${EnvironmentName}-xanadu-api-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      Description: API for Xanadu Rewards Application
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      # Add API key requirement for all methods
+      ApiKeySourceType: HEADER
+      # Add resource policy to restrict access
+      Policy:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: 'execute-api:Invoke'
+            Resource: '*'
+            Condition:
+              StringNotEquals:
+                'aws:SourceVpc': !Ref MainVPC
+
+  # Enable CORS for API Gateway error responses
+  ApiGatewayCors4xxResponse:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,username'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      ResponseType: DEFAULT_4XX
+      RestApiId: !Ref ApiGateway
+
+  ApiGatewayCors5xxResponse:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,username'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      ResponseType: DEFAULT_5XX
+      RestApiId: !Ref ApiGateway
+
+  ApiGatewayCorsUnauthorizedResponse:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,username'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      ResponseType: UNAUTHORIZED
+      RestApiId: !Ref ApiGateway
+
+  # API Gateway Authorizer
+  CognitoAuthorizer:
+    Type: AWS::ApiGateway::Authorizer
+    Properties:
+      Name: !Sub 
+        - '${AWS::StackName}-${EnvironmentName}-xanadu-cognito-authorizer-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      RestApiId: !Ref ApiGateway
+      Type: COGNITO_USER_POOLS
+      IdentitySource: method.request.header.Authorization
+      ProviderARNs:
+        - !GetAtt UserPool.Arn  
+  
+  # Root resource
+  ApiGatewayRootMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiLambdaFunction.Arn}/invocations
+      ResourceId: !GetAtt ApiGateway.RootResourceId
+      RestApiId: !Ref ApiGateway
+
+  # /prod resource
+  ProdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: prod
+      RestApiId: !Ref ApiGateway
+
+  # /prod/products resource
+  ProductsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Ref ProdResource
+      PathPart: products
+      RestApiId: !Ref ApiGateway
+
+  # OPTIONS methods are automatically created by ApiGatewayCorsForResources
+
+  # GET /prod/products
+  ProductsGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiLambdaFunction.Arn}/invocations
+      ResourceId: !Ref ProductsResource
+      RestApiId: !Ref ApiGateway
+
+  # OPTIONS methods are automatically created by ApiGatewayCorsForResources
+
+  # /prod/products/{item_id} resource
+  ProductItemResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Ref ProductsResource
+      PathPart: "{item_id}"
+      RestApiId: !Ref ApiGateway
+
+  # OPTIONS methods are automatically created by ApiGatewayCorsForResources
+
+  # GET /prod/products/{item_id}
+  ProductItemGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiLambdaFunction.Arn}/invocations
+      ResourceId: !Ref ProductItemResource
+      RestApiId: !Ref ApiGateway
+      RequestParameters:
+        method.request.path.item_id: true
+  
+  # /prod/products/categories resource
+  ProductCategoriesResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Ref ProductsResource
+      PathPart: categories
+      RestApiId: !Ref ApiGateway
+
+  # OPTIONS methods are automatically created by ApiGatewayCorsForResources
+
+  # GET /prod/products/categories
+  ProductCategoriesGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiLambdaFunction.Arn}/invocations
+      ResourceId: !Ref ProductCategoriesResource
+      RestApiId: !Ref ApiGateway
+
+  # /prod/category resource
+  CategoryProdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Ref ProdResource
+      PathPart: category
+      RestApiId: !Ref ApiGateway
+
+  CategoryProdGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiLambdaFunction.Arn}/invocations
+      ResourceId: !Ref CategoryProdResource
+      RestApiId: !Ref ApiGateway
+
+  # /category resource
+  CategoryResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: category
+      RestApiId: !Ref ApiGateway
+
+  # OPTIONS methods are automatically created by ApiGatewayCorsForResources
+
+  # /category/{category} resource
+  CategoryNameResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Ref CategoryResource
+      PathPart: "{category}"
+      RestApiId: !Ref ApiGateway
+
+  # GET /category/{category}
+  CategoryNameGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiLambdaFunction.Arn}/invocations
+      ResourceId: !Ref CategoryNameResource
+      RestApiId: !Ref ApiGateway
+      RequestParameters:
+        method.request.path.category: true
+        
+  # /customer resource
+  CustomerResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: customer
+      RestApiId: !Ref ApiGateway
+
+  # OPTIONS methods are automatically created by ApiGatewayCorsForResources
+
+  # GET /customer
+  CustomerGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiLambdaFunction.Arn}/invocations
+      ResourceId: !Ref CustomerResource
+      RestApiId: !Ref ApiGateway
+
+  # /prod/points resource
+  PointsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Ref ProdResource
+      PathPart: points
+      RestApiId: !Ref ApiGateway
+
+  # OPTIONS methods are automatically created by ApiGatewayCorsForResources
+
+  # GET /prod/points
+  PointsGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiLambdaFunction.Arn}/invocations
+      ResourceId: !Ref PointsResource
+      RestApiId: !Ref ApiGateway
+      
+  # /prod/points/tx resource
+  PointsTxResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Ref PointsResource
+      PathPart: tx
+      RestApiId: !Ref ApiGateway
+
+  # GET /prod/points/tx
+  PointsTxGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiLambdaFunction.Arn}/invocations
+      ResourceId: !Ref PointsTxResource
+      RestApiId: !Ref ApiGateway
+
+  # POST /prod/points/tx
+  PointsTxPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      HttpMethod: POST
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiLambdaFunction.Arn}/invocations
+      ResourceId: !Ref PointsTxResource
+      RestApiId: !Ref ApiGateway
+
+  # /prod/points/tx/{tx_id} resource
+  PointsTxIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Ref PointsTxResource
+      PathPart: "{tx_id}"
+      RestApiId: !Ref ApiGateway
+
+  # GET /prod/points/tx/{tx_id}
+  PointsTxIdGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiLambdaFunction.Arn}/invocations
+      ResourceId: !Ref PointsTxIdResource
+      RestApiId: !Ref ApiGateway
+      RequestParameters:
+        method.request.path.tx_id: true  
+        
+  # /prod/cart resource
+  CartResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Ref ProdResource
+      PathPart: cart
+      RestApiId: !Ref ApiGateway
+
+  # OPTIONS methods are automatically created by ApiGatewayCorsForResources
+
+  # GET /prod/cart
+  CartGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiLambdaFunction.Arn}/invocations
+      ResourceId: !Ref CartResource
+      RestApiId: !Ref ApiGateway
+
+  # DELETE /prod/cart
+  CartDeleteMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      HttpMethod: DELETE
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiLambdaFunction.Arn}/invocations
+      ResourceId: !Ref CartResource
+      RestApiId: !Ref ApiGateway
+
+  # /prod/cart/checkout resource
+  CartCheckoutResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Ref CartResource
+      PathPart: checkout
+      RestApiId: !Ref ApiGateway
+
+  # POST /prod/cart/checkout
+  CartCheckoutPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      HttpMethod: POST
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiLambdaFunction.Arn}/invocations
+      ResourceId: !Ref CartCheckoutResource
+      RestApiId: !Ref ApiGateway  
+  
+  # /prod/cart/item resource
+  CartItemResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Ref CartResource
+      PathPart: item
+      RestApiId: !Ref ApiGateway
+
+  # POST /prod/cart/item
+  CartItemPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      HttpMethod: POST
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiLambdaFunction.Arn}/invocations
+      ResourceId: !Ref CartItemResource
+      RestApiId: !Ref ApiGateway
+
+  # DELETE /prod/cart/item
+  CartItemDeleteMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      HttpMethod: DELETE
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiLambdaFunction.Arn}/invocations
+      ResourceId: !Ref CartItemResource
+      RestApiId: !Ref ApiGateway
+
+  # /prod/cart/item/{item_id} resource
+  CartItemIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Ref CartItemResource
+      PathPart: "{item_id}"
+      RestApiId: !Ref ApiGateway
+
+  # DELETE /prod/cart/item/{item_id}
+  CartItemIdDeleteMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      HttpMethod: DELETE
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiLambdaFunction.Arn}/invocations
+      ResourceId: !Ref CartItemIdResource
+      RestApiId: !Ref ApiGateway
+      RequestParameters:
+        method.request.path.item_id: true  
+  
+  # API Gateway Deployment
+  ApiGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ApiGatewayCorsForResources
+      - ApiGatewayCors4xxResponse
+      - ApiGatewayCors5xxResponse
+      - ApiGatewayCorsUnauthorizedResponse
+      - ApiGatewayRootMethod
+      - ProductsGetMethod
+      - ProductItemGetMethod
+      - ProductCategoriesGetMethod
+      - CustomerGetMethod
+      - CategoryNameGetMethod
+      - PointsGetMethod
+      - PointsTxGetMethod
+      - PointsTxPostMethod
+      - PointsTxIdGetMethod
+      - CartGetMethod
+      - CartDeleteMethod
+      - CartCheckoutPostMethod
+      - CartItemPostMethod
+      - CartItemDeleteMethod
+      - CartItemIdDeleteMethod
+      - CategoryProdGetMethod
+    Properties:
+      RestApiId: !Ref ApiGateway
+      StageName: !Ref EnvironmentName
+      StageDescription:
+        AccessLogSetting:
+          DestinationArn: !GetAtt ApiGatewayAccessLogGroup.Arn
+          Format: '{"requestId":"$context.requestId", "ip":"$context.identity.sourceIp", "caller":"$context.identity.caller", "user":"$context.identity.user", "requestTime":"$context.requestTime", "httpMethod":"$context.httpMethod", "resourcePath":"$context.resourcePath", "status":"$context.status", "protocol":"$context.protocol", "responseLength":"$context.responseLength"}'
+          
+  # IAM Role for API Gateway CloudWatch Logs
+  ApiGatewayCloudWatchLogsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: apigateway.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+      Path: /
+
+  # API Gateway Account Settings
+  ApiGatewayAccount:
+    Type: AWS::ApiGateway::Account
+    Properties:
+      CloudWatchRoleArn: !GetAtt ApiGatewayCloudWatchLogsRole.Arn
+
+  # API Gateway Access Logs
+  ApiGatewayAccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub 
+        - '/aws/apigateway/${EnvironmentName}-${StackSuffix}-api-logs'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      RetentionInDays: 7
+      KmsKeyId: !GetAtt LogsKMSKey.Arn
+      
+  # API Gateway Usage Plan
+  ApiGatewayUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    DependsOn: ApiGatewayDeployment
+    Properties:
+      UsagePlanName: !Sub 
+        - '${EnvironmentName}-${StackSuffix}-usage-plan'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      Description: "Usage plan for Xanadu Rewards API"
+      ApiStages:
+        - ApiId: !Ref ApiGateway
+          Stage: !Ref EnvironmentName
+      Throttle:
+        BurstLimit: 100
+        RateLimit: 50
+        
+  # API Key for API Gateway
+  ApiKey:
+    Type: AWS::ApiGateway::ApiKey
+    DependsOn: ApiGatewayDeployment
+    Properties:
+      # Use a generated name instead of explicit name
+      # Name: !Sub "${AWS::StackName}-${EnvironmentName}-api-key"
+      Description: "API Key for Xanadu Rewards API"
+      Enabled: true
+      
+  # Usage Plan Key
+  UsagePlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    Properties:
+      KeyId: !Ref ApiKey
+      KeyType: API_KEY
+      UsagePlanId: !Ref ApiGatewayUsagePlan
+
+  # Lambda Permission for API Gateway
+  LambdaApiGatewayPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiLambdaFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*
+  
+  # Lambda function to enable CORS
+  ApiGatewayCorsFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - NATGateway
+    Properties:
+      FunctionName: !Sub 
+        - '${EnvironmentName}-${StackSuffix}-cors-handler'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      Handler: cors-lambda.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: nodejs22.x
+      Timeout: 300
+      ReservedConcurrentExecutions: 5
+      DeadLetterConfig:
+        TargetArn: !GetAtt ApiGatewayCorsFunctionDLQ.Arn
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: !Ref LambdaCorsCodeS3Key
+      Environment:
+        Variables:
+          REGION: !Ref AWS::Region
+      KmsKeyArn: !GetAtt LambdaEnvKMSKey.Arn
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref DBSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+
+  # Dead Letter Queue for CORS Lambda
+  ApiGatewayCorsFunctionDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 
+        - '${EnvironmentName}-${StackSuffix}-cors-lambda-dlq'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      MessageRetentionPeriod: 1209600 # 14 days
+      KmsMasterKeyId: !GetAtt SQSKMSKey.Arn
+          
+  # Enable CORS for API Gateway
+  ApiGatewayCorsForResources:
+    Type: 'Custom::ApiGatewayCors'
+    DependsOn:
+      - ApiGatewayRootMethod
+      - ProductsGetMethod
+      - ProductItemGetMethod
+      - ProductCategoriesGetMethod
+      - CustomerGetMethod
+      - CategoryProdGetMethod
+      - CategoryNameGetMethod
+      - PointsGetMethod
+      - PointsTxGetMethod
+      - PointsTxPostMethod
+      - PointsTxIdGetMethod
+      - CartGetMethod
+      - CartDeleteMethod
+      - CartCheckoutPostMethod
+      - CartItemPostMethod
+      - CartItemDeleteMethod
+      - CartItemIdDeleteMethod
+    Properties:
+      ServiceToken: !GetAtt ApiGatewayCorsFunction.Arn
+      RestApiId: !Ref ApiGateway
+      Headers: 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,username'
+      Methods: 'GET,POST,PUT,DELETE,OPTIONS'
+      Origins: '*'
+
+  # Lambda function to get API key value
+  GetApiKeyFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 
+        - '${EnvironmentName}-${StackSuffix}-get-api-key'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: nodejs22.x
+      Timeout: 60
+      ReservedConcurrentExecutions: 2
+      Code:
+        ZipFile: |
+          const { APIGatewayClient, GetApiKeyCommand } = require('@aws-sdk/client-api-gateway');
+          const response = require('cfn-response');
+          
+          exports.handler = async (event, context) => {
+            try {
+              if (event.RequestType === 'Delete' || event.RequestType === 'Update') {
+                await response.send(event, context, response.SUCCESS);
+                return;
+              }
+              
+              const client = new APIGatewayClient({ region: process.env.AWS_REGION });
+              const command = new GetApiKeyCommand({
+                apiKey: event.ResourceProperties.ApiKeyId,
+                includeValue: true
+              });
+              
+              const result = await client.send(command);
+              
+              await response.send(event, context, response.SUCCESS, {
+                ApiKeyValue: result.value
+              });
+            } catch (error) {
+              console.error('Error:', error);
+              await response.send(event, context, response.FAILED);
+            }
+          };
+
+  # Custom resource to get API key value
+  GetApiKeyValue:
+    Type: Custom::GetApiKeyValue
+    DependsOn: ApiKey
+    Properties:
+      ServiceToken: !GetAtt GetApiKeyFunction.Arn
+      ApiKeyId: !Ref ApiKey
+
+  # Amplify Resources
+  AmplifyApp:
+    Type: AWS::Amplify::App
+    Properties:
+      Name: !Sub 
+        - '${AWS::StackName}-${EnvironmentName}-xanadu-rewards-app-${StackSuffix}'
+        - StackSuffix: !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]
+      Repository: !Sub https://github.com/${GitHubOwner}/${GitHubRepo}
+      Description: Xanadu Rewards Application
+      OauthToken: !Ref GitHubOAuthToken
+      BuildSpec: |
+        version: 1
+        frontend:
+          phases:
+            preBuild:
+              commands:
+                - cd 3_Building_Your_First_Serverless_Web_App_with_Aurora/rewards-app-example
+                - npm install
+            build:
+              commands:
+                - npm run build
+          artifacts:
+            baseDirectory: 3_Building_Your_First_Serverless_Web_App_with_Aurora/rewards-app-example/dist
+            files:
+              - '**/*'
+          cache:
+            paths:
+              - 3_Building_Your_First_Serverless_Web_App_with_Aurora/rewards-app-example/node_modules/**/*
+      CustomRules:
+        - Source: '</^[^.]+$|\\.(?!(css|gif|ico|jpg|js|png|txt|svg|woff|woff2|ttf|map|json)$)([^.]+$)/>'
+          Target: '/index.html'
+          Status: '200'
+      EnvironmentVariables:
+        - Name: VITE_USER_POOL_ID
+          Value: !Ref UserPool
+        - Name: VITE_CLIENT_ID
+          Value: !Ref UserPoolClient
+        - Name: VITE_BASE_URL
+          Value: !Sub https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${EnvironmentName}
+        - Name: VITE_API_KEY
+          Value: !GetAtt GetApiKeyValue.ApiKeyValue
+          
+  AmplifyBranch:
+    Type: AWS::Amplify::Branch
+    Properties:
+      AppId: !GetAtt AmplifyApp.AppId
+      BranchName: main
+      EnableAutoBuild: true
+      Stage: PRODUCTION
+      EnvironmentVariables:
+        - Name: VITE_USER_POOL_ID
+          Value: !Ref UserPool
+        - Name: VITE_CLIENT_ID
+          Value: !Ref UserPoolClient
+        - Name: VITE_BASE_URL
+          Value: !Sub https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${EnvironmentName}
+        - Name: VITE_API_KEY
+          Value: !GetAtt GetApiKeyValue.ApiKeyValue
+
+Outputs:
+  Region:
+    Description: AWS Region
+    Value: !Ref AWS::Region
+    
+  MainVPC:
+    Description: VPC for the application
+    Value: !Ref MainVPC
+    
+  PublicSubnetA:
+    Description: Public Subnet A
+    Value: !Ref PublicSubnetA
+    
+  PublicSubnetB:
+    Description: Public Subnet B
+    Value: !Ref PublicSubnetB
+    
+  PrivateSubnetA:
+    Description: Private Subnet A
+    Value: !Ref PrivateSubnetA
+    
+  PrivateSubnetB:
+    Description: Private Subnet B
+    Value: !Ref PrivateSubnetB
+    
+  PrivateSubnets:
+    Description: Private Subnets for Aurora and Lambda
+    Value: !Join [',', [!Ref PrivateSubnetA, !Ref PrivateSubnetB]]
+    
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${EnvironmentName}
+  
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref UserPool
+  
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !Ref UserPoolClient
+  
+  AmplifyAppId:
+    Description: Amplify App ID
+    Value: !GetAtt AmplifyApp.AppId
+  
+  AmplifyURL:
+    Description: Amplify App URL
+    Value: !Sub https://main.${AmplifyApp.DefaultDomain}
+  
+  ClusterEndpoint:
+    Description: Aurora Cluster Endpoint
+    Value: !GetAtt DBCluster.Endpoint.Address
+  
+  ReaderEndpoint:
+    Description: Aurora Reader Endpoint
+    Value: !GetAtt DBCluster.ReadEndpoint.Address
+  
+  ProxyEndpoint:
+    Description: RDS Proxy Endpoint
+    Value: !GetAtt RDSProxy.Endpoint
+  
+  S3BucketName:
+    Description: S3 bucket for images
+    Value: !Ref S3BucketName
+  
+  DatabaseName:
+    Description: Database Name
+    Value: !Ref DBName
+    
+  ApiKey:
+    Description: API Gateway API Key
+    Value: !Ref ApiKey
+    
+  DBMasterUserSecretArn:
+    Description: ARN of the database master user secret
+    Value: !Ref DBMasterUserSecret
+  
+  DBAppUserSecretArn:
+    Description: Application user secret ARN
+    Value: !Ref DBAppUserSecret
+    
+  ApiLambdaFunction:
+    Description: API Lambda Function Name
+    Value: !Ref ApiLambdaFunction

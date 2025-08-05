@@ -1,0 +1,4 @@
+# lambda/load-sample-data/requirements.txt
+boto3
+psycopg2-binary
+sqlalchemy

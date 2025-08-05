@@ -1,0 +1,121 @@
+{
+  "policies": [
+    {
+      "policy_number": "LI-1234567",
+      "policy_type": "TERM",
+      "policy_status": "ACTIVE",
+      "issue_date": "2024-03-01",
+      "face_amount": 500000.00,
+      "policy_owner": "John Smith",
+      "owner_date_of_birth": "1980-06-15",
+      "insured_person": "John Smith"
+    },
+    {
+      "policy_number": "LI-7654321",
+      "policy_type": "TERM",
+      "policy_status": "ACTIVE",
+      "issue_date": "2024-07-01",
+      "face_amount": 750000.00,
+      "policy_owner": "Jane Doe",
+      "owner_date_of_birth": "1985-04-01",
+      "insured_person": "Jane Doe"
+    }
+  ],
+  "premiums": [
+    {
+      "policy_number": "LI-1234567",
+      "premium_amount": 150.00,
+      "premium_frequency": "MONTHLY",
+      "next_due_date": "2025-08-01"
+    },
+    {
+      "policy_number": "LI-7654321",
+      "premium_amount": 200.00,
+      "premium_frequency": "MONTHLY",
+      "next_due_date": "2025-08-01"
+    }
+  ],
+  "addresses": [
+    {
+      "policy_number": "LI-1234567",
+      "address_type": "PRIMARY",
+      "street_address": "123 Main St",
+      "city": "Boston",
+      "state": "MA",
+      "zip_code": "02108",
+      "is_current": true
+    },
+    {
+      "policy_number": "LI-7654321",
+      "address_type": "PRIMARY",
+      "street_address": "456 Park Ave",
+      "city": "New York",
+      "state": "NY",
+      "zip_code": "10022",
+      "is_current": true
+    }
+  ],
+  "beneficiaries": [
+    {
+      "policy_number": "LI-1234567",
+      "beneficiary_name": "Mary Smith",
+      "relationship": "SPOUSE",
+      "percentage": 100.00,
+      "is_primary": true
+    },
+    {
+      "policy_number": "LI-7654321",
+      "beneficiary_name": "John Doe Jr",
+      "relationship": "CHILD",
+      "percentage": 100.00,
+      "is_primary": true
+    }
+  ],
+  "payment_methods": [
+    {
+      "policy_number": "LI-1234567",
+      "payment_type": "CREDIT_CARD",
+      "card_number": "4111111111111111",
+      "card_last_four": "1111",
+      "expiration_date": "2025-12-31",
+      "is_default": true
+    },
+    {
+      "policy_number": "LI-7654321",
+      "payment_type": "ACH",
+      "account_number": "12345678",
+      "routing_number": "087654321",
+      "is_default": true
+    }
+  ],
+  "payment_history": [
+    {
+      "policy_number": "LI-1234567",
+      "payment_amount": 150.00,
+      "payment_date": "2024-06-01",
+      "payment_status": "COMPLETED",
+      "payment_type": "CREDIT_CARD",
+      "card_last_four": "1111"
+    },
+    {
+      "policy_number": "LI-7654321",
+      "payment_amount": 200.00,
+      "payment_date": "2024-06-01",
+      "payment_status": "COMPLETED",
+      "payment_type": "CREDIT_CARD",
+      "account_number": "1112"
+    }
+  ],
+  "policy_valuations": [
+    {
+      "policy_number": "LI-1234567",
+      "net_cash_surrender": 125000.00,
+      "valuation_date": "2024-06-01"
+    },
+    {
+      "policy_number": "LI-7654321",
+      "net_cash_surrender": 175000.00,
+      "valuation_date": "2024-06-01"
+    }
+  ]
+}

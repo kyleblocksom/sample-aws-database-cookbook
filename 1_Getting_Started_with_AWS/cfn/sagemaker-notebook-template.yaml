@@ -1,0 +1,1250 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template to create a SageMaker Jupyter notebook instance with VPC infrastructure'
+
+Conditions:
+  IsPrivateRepo: !Not [!Equals [!Ref GitHubToken, ""]]
+
+Parameters:
+  GitHubRepositoryUrl:
+    Type: String
+    Description: URL of the GitHub repository to clone (e.g., https://github.com/username/repo.git)
+    
+  GitHubToken:
+    Type: String
+    Description: GitHub personal access token for private repositories (leave empty for public repositories)
+    Default: ""
+    NoEcho: true
+    
+  NotebookInstanceType:
+    Type: String
+    Default: ml.t3.medium
+    Description: The ML compute instance type for the notebook (free tier eligible)
+    AllowedValues:
+      - ml.t3.medium
+      
+  VpcCidr:
+    Type: String
+    Default: 172.31.0.0/16
+    Description: CIDR block for the VPC
+      
+Resources:
+  # VPC and Networking Resources
+  MainVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      CidrBlock: !Ref VpcCidr
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-vpc
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-igw
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+          
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MainVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: !Select [ 0, !Cidr [ !Ref VpcCidr, 4, 8 ]]
+      AvailabilityZone: !Select [ 0, !GetAZs ]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-PublicA
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: !Select [ 1, !Cidr [ !Ref VpcCidr, 4, 8 ]]
+      AvailabilityZone: !Select [ 1, !GetAZs ]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-PublicB
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: !Select [ 2, !Cidr [ !Ref VpcCidr, 4, 8 ]]
+      AvailabilityZone: !Select [ 0, !GetAZs ]
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-PrivateA
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: !Select [ 3, !Cidr [ !Ref VpcCidr, 4, 8 ]]
+      AvailabilityZone: !Select [ 1, !GetAZs ]
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-PrivateB
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  NatGatewayEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-NatGW
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MainVPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-public-rtb
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MainVPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-private-rtb
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PublicSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+
+  # KMS key for encrypting secrets
+  SecretsKMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS key for encrypting Secrets Manager secrets
+      EnableKeyRotation: true
+      Tags:
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: Allow CloudFormation Service
+            Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action:
+              - 'kms:CreateKey'
+              - 'kms:DescribeKey'
+              - 'kms:EnableKeyRotation'
+              - 'kms:GetKeyPolicy'
+              - 'kms:PutKeyPolicy'
+              - 'kms:CreateAlias'
+              - 'kms:TagResource'
+            Resource: '*'
+          - Sid: Allow Secrets Manager Service
+            Effect: Allow
+            Principal:
+              Service: secretsmanager.amazonaws.com
+            Action:
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey*'
+              - 'kms:DescribeKey'
+            Resource: '*'
+            Condition:
+              StringEquals:
+                'kms:ViaService': !Sub 'secretsmanager.${AWS::Region}.amazonaws.com'
+            
+  SecretsKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub 'alias/${AWS::StackName}-secrets-key'
+      TargetKeyId: !Ref SecretsKMSKey
+      
+  GitHubTokenSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: IsPrivateRepo
+    Properties:
+      Name: !Sub ${AWS::StackName}-github-token
+      Description: GitHub token for accessing private repositories
+      KmsKeyId: !Ref SecretsKMSKey
+      SecretString: !Ref GitHubToken
+      Tags:
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  SageMakerExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sagemaker.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        # Add S3 bucket access policy for specific operations
+        - PolicyName: S3SpecificBucketAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 's3:PutObject'
+                  - 's3:DeleteObject'
+                  - 's3:ListBucket'
+                  - 's3:GetBucketLocation'
+                  - 's3:GetObjectTagging'
+                  - 's3:PutObjectTagging'
+                  - 's3:DeleteObjectTagging'
+                  - 's3:GetBucketTagging'
+                  - 's3:PutBucketTagging'
+                Resource:
+                  - !Sub 'arn:aws:s3:::sagemaker-${AWS::Region}-${AWS::AccountId}/*'
+                  - !Sub 'arn:aws:s3:::sagemaker-${AWS::Region}-${AWS::AccountId}'
+        # Add RDS access for IAM authentication
+        - PolicyName: RDSConnectAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - rds-db:connect
+                Resource: !Sub 'arn:aws:rds-db:${AWS::Region}:${AWS::AccountId}:dbuser:*/*'
+              - Effect: Allow
+                Action:
+                  - 'rds:AddTagsToResource'
+                  - 'rds:RemoveTagsFromResource'
+                  - 'rds:ListTagsForResource'
+                Resource: !Sub 'arn:aws:rds:*:${AWS::AccountId}:*'
+              - Effect: Allow
+                Action:
+                  - 'rds-data:ExecuteStatement'
+                  - 'rds-data:BatchExecuteStatement'
+                  - 'rds-data:BeginTransaction'
+                  - 'rds-data:CommitTransaction'
+                  - 'rds-data:RollbackTransaction'
+                Resource: !Sub 'arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster:*'
+        # Add CloudFormation permissions for stack deployment
+        - PolicyName: CloudFormationAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'cloudformation:CreateStack'
+                  - 'cloudformation:UpdateStack'
+                  - 'cloudformation:DeleteStack'
+                  - 'cloudformation:DescribeStacks'
+                  - 'cloudformation:DescribeStackEvents'
+                  - 'cloudformation:DescribeStackResources'
+                  - 'cloudformation:GetTemplate'
+                  - 'cloudformation:ValidateTemplate'
+                  - 'cloudformation:ListStacks'
+                  - 'cloudformation:CreateChangeSet'
+                  - 'cloudformation:ExecuteChangeSet'
+                  - 'cloudformation:DescribeChangeSet'
+                  - 'cloudformation:DeleteChangeSet'
+                  - 'cloudformation:TagResource'
+                  - 'cloudformation:UntagResource'
+                  - 'cloudformation:ListStackResources'
+                Resource: 
+                  - !Sub 'arn:aws:cloudformation:*:${AWS::AccountId}:stack/*'
+                  - !Sub 'arn:aws:cloudformation:*:${AWS::AccountId}:stackset/*'
+              - Effect: Allow
+                Action:
+                  - 'sts:AssumeRole'
+                Resource: 
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/cdk-*'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/*-execution-role-*'
+        # Add KMS permissions for key management
+        - PolicyName: KMSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'kms:CreateKey'
+                  - 'kms:ListAliases'
+                  - 'kms:ListKeys'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'kms:DescribeKey'
+                  - 'kms:EnableKeyRotation'
+                  - 'kms:DisableKeyRotation'
+                  - 'kms:GetKeyRotationStatus'
+                  - 'kms:GetKeyPolicy'
+                  - 'kms:PutKeyPolicy'
+                  - 'kms:CreateAlias'
+                  - 'kms:DeleteAlias'
+                  - 'kms:ListResourceTags'
+                  - 'kms:TagResource'
+                  - 'kms:UntagResource'
+                  - 'kms:Encrypt'
+                  - 'kms:Decrypt'
+                  - 'kms:ReEncrypt*'
+                  - 'kms:GenerateDataKey*'
+                  - 'kms:CreateGrant'
+                  - 'kms:ListGrants'
+                  - 'kms:RevokeGrant'
+                  - 'kms:ScheduleKeyDeletion'
+                  - 'kms:CancelKeyDeletion'
+                Resource: 
+                  - !Sub 'arn:aws:kms:*:${AWS::AccountId}:key/*'
+                  - !Sub 'arn:aws:kms:*:${AWS::AccountId}:alias/*'
+        # Add VPC Endpoint permissions
+        - PolicyName: VPCEndpointAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'ec2:CreateVpcEndpoint'
+                  - 'ec2:DescribeVpcEndpoints'
+                  - 'ec2:ModifyVpcEndpoint'
+                  - 'ec2:DeleteVpcEndpoint'
+                  - 'ec2:DescribeVpcEndpointServices'
+                  - 'ec2:DescribeVpcEndpointConnections'
+                  - 'ec2:DescribeVpcEndpointServiceConfigurations'
+                Resource: !Sub 'arn:aws:ec2:*:${AWS::AccountId}:*'
+        # Add ECS permissions for Streamlit app
+        - PolicyName: ECSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'ecs:CreateCluster'
+                  - 'ecs:DeleteCluster'
+                  - 'ecs:DescribeClusters'
+                  - 'ecs:CreateService'
+                  - 'ecs:UpdateService'
+                  - 'ecs:DeleteService'
+                  - 'ecs:DescribeServices'
+                  - 'ecs:CreateTaskDefinition'
+                  - 'ecs:RegisterTaskDefinition'
+                  - 'ecs:DeregisterTaskDefinition'
+                  - 'ecs:DescribeTaskDefinition'
+                  - 'ecs:RunTask'
+                  - 'ecs:StopTask'
+                  - 'ecs:DescribeTasks'
+                  - 'ecs:TagResource'
+                  - 'ecs:UntagResource'
+                  - 'ecs:ListTagsForResource'
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: 
+                  - !Sub 'arn:aws:ecs:*:${AWS::AccountId}:*'
+                  - !Sub 'arn:aws:logs:*:${AWS::AccountId}:*'
+        # Add CodePipeline and CodeBuild permissions
+        - PolicyName: CodePipelineAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'codepipeline:CreatePipeline'
+                  - 'codepipeline:UpdatePipeline'
+                  - 'codepipeline:DeletePipeline'
+                  - 'codepipeline:GetPipeline'
+                  - 'codepipeline:StartPipelineExecution'
+                  - 'codepipeline:StopPipelineExecution'
+                  - 'codepipeline:GetPipelineState'
+                  - 'codepipeline:GetPipelineExecution'
+                  - 'codebuild:CreateProject'
+                  - 'codebuild:UpdateProject'
+                  - 'codebuild:DeleteProject'
+                  - 'codebuild:BatchGetProjects'
+                  - 'codebuild:StartBuild'
+                  - 'codebuild:BatchGetBuilds'
+                  - 'codestar-connections:UseConnection'
+                  - 'codestar-connections:GetConnection'
+                Resource: 
+                  - !Sub 'arn:aws:codepipeline:*:${AWS::AccountId}:*'
+                  - !Sub 'arn:aws:codebuild:*:${AWS::AccountId}:*'
+                  - !Sub 'arn:aws:codestar-connections:*:${AWS::AccountId}:*'
+        # Add Load Balancer permissions
+        - PolicyName: LoadBalancerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'elasticloadbalancing:CreateLoadBalancer'
+                  - 'elasticloadbalancing:DeleteLoadBalancer'
+                  - 'elasticloadbalancing:DescribeLoadBalancers'
+                  - 'elasticloadbalancing:CreateTargetGroup'
+                  - 'elasticloadbalancing:DeleteTargetGroup'
+                  - 'elasticloadbalancing:DescribeTargetGroups'
+                  - 'elasticloadbalancing:CreateListener'
+                  - 'elasticloadbalancing:DeleteListener'
+                  - 'elasticloadbalancing:DescribeListeners'
+                  - 'elasticloadbalancing:ModifyLoadBalancerAttributes'
+                  - 'elasticloadbalancing:ModifyTargetGroupAttributes'
+                  - 'elasticloadbalancing:RegisterTargets'
+                  - 'elasticloadbalancing:DeregisterTargets'
+                Resource: 
+                  - !Sub 'arn:aws:elasticloadbalancing:*:${AWS::AccountId}:*'
+        # Add CloudFront permissions
+        - PolicyName: CloudFrontAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'cloudfront:CreateDistribution'
+                  - 'cloudfront:UpdateDistribution'
+                  - 'cloudfront:DeleteDistribution'
+                  - 'cloudfront:GetDistribution'
+                  - 'cloudfront:ListDistributions'
+                  - 'cloudfront:CreateOriginRequestPolicy'
+                  - 'cloudfront:DeleteOriginRequestPolicy'
+                  - 'cloudfront:GetOriginRequestPolicy'
+                Resource: 
+                  - !Sub 'arn:aws:cloudfront::${AWS::AccountId}:*'
+        # Add DynamoDB permissions
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:CreateTable'
+                  - 'dynamodb:DeleteTable'
+                  - 'dynamodb:DescribeTable'
+                  - 'dynamodb:UpdateTable'
+                  - 'dynamodb:PutItem'
+                  - 'dynamodb:GetItem'
+                  - 'dynamodb:UpdateItem'
+                  - 'dynamodb:DeleteItem'
+                  - 'dynamodb:Query'
+                  - 'dynamodb:Scan'
+                  - 'dynamodb:BatchGetItem'
+                  - 'dynamodb:BatchWriteItem'
+                Resource: 
+                  - !Sub 'arn:aws:dynamodb:*:${AWS::AccountId}:table/*'
+        # Add ECR permissions
+        - PolicyName: ECRAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'ecr:CreateRepository'
+                  - 'ecr:DeleteRepository'
+                  - 'ecr:DescribeRepositories'
+                  - 'ecr:PutLifecyclePolicy'
+                  - 'ecr:GetLifecyclePolicy'
+                  - 'ecr:DeleteLifecyclePolicy'
+                  - 'ecr:BatchCheckLayerAvailability'
+                  - 'ecr:GetDownloadUrlForLayer'
+                  - 'ecr:BatchGetImage'
+                  - 'ecr:InitiateLayerUpload'
+                  - 'ecr:UploadLayerPart'
+                  - 'ecr:CompleteLayerUpload'
+                  - 'ecr:PutImage'
+                Resource: 
+                  - !Sub 'arn:aws:ecr:*:${AWS::AccountId}:repository/*'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+        - arn:aws:iam::aws:policy/AmazonRDSFullAccess
+        - arn:aws:iam::aws:policy/SecretsManagerReadWrite
+        - arn:aws:iam::aws:policy/AmazonEC2FullAccess
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AWSLambda_FullAccess
+        - arn:aws:iam::aws:policy/AmazonCognitoPowerUser
+        - arn:aws:iam::aws:policy/AmazonAPIGatewayAdministrator
+        - arn:aws:iam::aws:policy/AdministratorAccess-Amplify
+        - arn:aws:iam::aws:policy/CloudWatchFullAccess
+      Path: /
+        
+  SageMakerIAMPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: SageMakerIAMPermissions
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:            
+          # IAM permissions for service-linked roles
+          - Effect: Allow
+            Action:
+              - 'iam:CreateServiceLinkedRole'
+            Resource: !Sub 'arn:aws:iam::${AWS::AccountId}:role/aws-service-role/*'
+            Condition:
+              StringEquals:
+                'iam:AWSServiceName':
+                  - 'sagemaker.amazonaws.com'
+                  - 'rds.amazonaws.com'
+            
+          # IAM PassRole permissions with specific resources
+          - Effect: Allow
+            Action:
+              - 'iam:PassRole'
+            Resource: 
+              - !GetAtt SageMakerExecutionRole.Arn
+              - !Sub 'arn:aws:iam::${AWS::AccountId}:role/aws-service-role/rds.amazonaws.com/*'
+              - !Sub 'arn:aws:iam::${AWS::AccountId}:role/*'
+            Condition:
+              StringEquals:
+                'iam:PassedToService': 
+                  - 'sagemaker.amazonaws.com'
+                  - 'rds.amazonaws.com'
+                  
+          # IAM permissions for Aurora role management
+          - Effect: Allow
+            Action:
+              - 'iam:CreateRole'
+              - 'iam:GetRole'
+              - 'iam:AttachRolePolicy'
+              - 'iam:DetachRolePolicy'
+              - 'iam:DeleteRole'
+              - 'iam:CreatePolicy'
+              - 'iam:GetPolicy'
+              - 'iam:DeletePolicy'
+              - 'iam:ListAttachedRolePolicies'
+              - 'iam:TagRole'
+              - 'iam:UntagRole'
+              - 'iam:ListRoleTags'
+              - 'iam:TagPolicy'
+              - 'iam:UntagPolicy'
+              - 'iam:ListPolicyTags'
+            Resource:
+              - !Sub 'arn:aws:iam::${AWS::AccountId}:role/*'
+              - !Sub 'arn:aws:iam::${AWS::AccountId}:policy/*'
+      Roles:
+        - !Ref SageMakerExecutionRole
+        
+  SageMakerDSQLPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: SageMakerDSQLPermissions
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Aurora DSQL permissions
+          - Effect: Allow
+            Action:
+              - 'dsql:CreateCluster'
+              - 'dsql:GetCluster'
+              - 'dsql:UpdateCluster'
+              - 'dsql:DeleteCluster'
+              - 'dsql:ListClusters'
+              - 'dsql:TagResource'
+              - 'dsql:UntagResource'
+              - 'dsql:ListTagsForResource'
+              - 'dsql:DbConnectAdmin'
+              - 'dsql:DbConnect'
+              - 'dsql:GenerateDbConnectAdminAuthToken'
+              - 'dsql:PutMultiRegionProperties'
+              - 'dsql:PutWitnessRegion'
+              - 'dsql:AddPeerCluster'
+              - 'dsql:RemovePeerCluster'
+              - 'dsql:GetVpcEndpointServiceName'
+              - 'dsql:StartBackupJob'
+              - 'dsql:GetBackupJob'
+              - 'dsql:StopBackupJob'
+              - 'dsql:StartRestoreJob'
+              - 'dsql:GetRestoreJob'
+              - 'dsql:StopRestoreJob'
+            Resource: 
+              - !Sub 'arn:aws:dsql:*:${AWS::AccountId}:*'
+              - !Sub 'arn:aws:dsql:*:${AWS::AccountId}:cluster/*'
+          # RDS token generation for DSQL
+          - Effect: Allow
+            Action:
+              - 'rds:DescribeDBClusters'
+              - 'rds:GenerateDataKeyPair'
+              - 'rds:GenerateDbAuthToken'
+            Resource: !Sub 'arn:aws:rds:*:${AWS::AccountId}:*'
+      Roles:
+        - !Ref SageMakerExecutionRole
+        
+
+  SageMakerSNSPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: SageMakerSNSPermissions
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # SNS permissions for alerting
+          - Effect: Allow
+            Action:
+              - 'sns:CreateTopic'
+              - 'sns:DeleteTopic'
+              - 'sns:Subscribe'
+              - 'sns:Unsubscribe'
+              - 'sns:Publish'
+              - 'sns:ListTopics'
+              - 'sns:ListSubscriptions'
+              - 'sns:GetTopicAttributes'
+              - 'sns:SetTopicAttributes'
+              - 'sns:TagResource'
+              - 'sns:UntagResource'
+              - 'sns:ListTagsForResource'
+            Resource: !Sub 'arn:aws:sns:*:${AWS::AccountId}:*'
+      Roles:
+        - !Ref SageMakerExecutionRole
+        
+  SageMakerBedrockPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: SageMakerBedrockPermissions
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Bedrock foundation model permissions
+          - Effect: Allow
+            Action:
+              - 'bedrock:InvokeModel'
+              - 'bedrock:InvokeModelWithResponseStream'
+              - 'bedrock:ListFoundationModels'
+              - 'bedrock:GetFoundationModel'
+            Resource: 
+              - !Sub 'arn:aws:bedrock:*::foundation-model/*'
+              - '*'
+          # Bedrock knowledge base and agent permissions
+          - Effect: Allow
+            Action:
+              - 'bedrock:CreateAgent'
+              - 'bedrock:GetAgent'
+              - 'bedrock:UpdateAgent'
+              - 'bedrock:DeleteAgent'
+              - 'bedrock:CreateKnowledgeBase'
+              - 'bedrock:GetKnowledgeBase'
+              - 'bedrock:UpdateKnowledgeBase'
+              - 'bedrock:DeleteKnowledgeBase'
+              - 'bedrock:CreateDataSource'
+              - 'bedrock:GetDataSource'
+              - 'bedrock:UpdateDataSource'
+              - 'bedrock:DeleteDataSource'
+              - 'bedrock:CreateGuardrail'
+              - 'bedrock:GetGuardrail'
+              - 'bedrock:UpdateGuardrail'
+              - 'bedrock:DeleteGuardrail'
+              - 'bedrock:AssociateAgentKnowledgeBase'
+              - 'bedrock:DisassociateAgentKnowledgeBase'
+              - 'bedrock:PrepareAgent'
+              - 'bedrock:StartIngestionJob'
+              - 'bedrock:GetIngestionJob'
+              - 'bedrock:ListIngestionJobs'
+              - 'bedrock:TagResource'
+              - 'bedrock:UntagResource'
+              - 'bedrock:ListTagsForResource'
+              - 'bedrock:Retrieve'
+              - 'bedrock:RetrieveAndGenerate'
+            Resource: !Sub 'arn:aws:bedrock:*:${AWS::AccountId}:*'
+      Roles:
+        - !Ref SageMakerExecutionRole
+        
+  SageMakerOpenSearchPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: SageMakerOpenSearchPermissions
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # OpenSearch permissions for vector databases
+          - Effect: Allow
+            Action:
+              - 'es:ESHttpGet'
+              - 'es:ESHttpPost'
+              - 'es:ESHttpPut'
+              - 'es:ESHttpDelete'
+              - 'es:ESHttpHead'
+              - 'es:DescribeDomain'
+              - 'es:ListDomainNames'
+              - 'es:AddTags'
+              - 'es:RemoveTags'
+              - 'es:ListTags'
+            Resource: !Sub 'arn:aws:es:*:${AWS::AccountId}:domain/*'
+          # OpenSearch Serverless permissions
+          - Effect: Allow
+            Action:
+              - 'aoss:CreateCollection'
+              - 'aoss:DeleteCollection'
+              - 'aoss:UpdateCollection'
+              - 'aoss:BatchGetCollection'
+              - 'aoss:ListCollections'
+              - 'aoss:CreateAccessPolicy'
+              - 'aoss:UpdateAccessPolicy'
+              - 'aoss:GetAccessPolicy'
+              - 'aoss:ListAccessPolicies'
+              - 'aoss:DeleteAccessPolicy'
+              - 'aoss:TagResource'
+              - 'aoss:UntagResource'
+              - 'aoss:ListTagsForResource'
+            Resource: !Sub 'arn:aws:aoss:*:${AWS::AccountId}:*'
+      Roles:
+        - !Ref SageMakerExecutionRole
+        
+  SageMakerAdditionalTaggingPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: SageMakerAdditionalTaggingPermissions
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Lambda tagging permissions
+          - Effect: Allow
+            Action:
+              - 'lambda:TagResource'
+              - 'lambda:UntagResource'
+              - 'lambda:ListTags'
+            Resource: !Sub 'arn:aws:lambda:*:${AWS::AccountId}:function:*'
+          # API Gateway tagging permissions
+          - Effect: Allow
+            Action:
+              - 'apigateway:TagResource'
+              - 'apigateway:UntagResource'
+              - 'apigateway:GetTags'
+            Resource: !Sub 'arn:aws:apigateway:*::/restapis/*'
+          # Cognito tagging permissions
+          - Effect: Allow
+            Action:
+              - 'cognito-idp:TagResource'
+              - 'cognito-idp:UntagResource'
+              - 'cognito-idp:ListTagsForResource'
+              - 'cognito-identity:TagResource'
+              - 'cognito-identity:UntagResource'
+              - 'cognito-identity:ListTagsForResource'
+            Resource: 
+              - !Sub 'arn:aws:cognito-idp:*:${AWS::AccountId}:userpool/*'
+              - !Sub 'arn:aws:cognito-identity:*:${AWS::AccountId}:identitypool/*'
+          # EC2 tagging permissions (for VPC resources)
+          - Effect: Allow
+            Action:
+              - 'ec2:CreateTags'
+              - 'ec2:DeleteTags'
+              - 'ec2:DescribeTags'
+            Resource: !Sub 'arn:aws:ec2:*:${AWS::AccountId}:*'
+          # Secrets Manager tagging permissions
+          - Effect: Allow
+            Action:
+              - 'secretsmanager:TagResource'
+              - 'secretsmanager:UntagResource'
+              - 'secretsmanager:DescribeSecret'
+            Resource: !Sub 'arn:aws:secretsmanager:*:${AWS::AccountId}:secret:*'
+          # SQS tagging permissions
+          - Effect: Allow
+            Action:
+              - 'sqs:TagQueue'
+              - 'sqs:UntagQueue'
+              - 'sqs:ListQueueTags'
+            Resource: !Sub 'arn:aws:sqs:*:${AWS::AccountId}:*'
+      Roles:
+        - !Ref SageMakerExecutionRole
+        
+  NotebookInstance:
+    Type: AWS::SageMaker::NotebookInstance
+    Properties:
+      NotebookInstanceName: !Sub ${AWS::StackName}-db-cookbook
+      InstanceType: !Ref NotebookInstanceType
+      RoleArn: !GetAtt SageMakerExecutionRole.Arn
+      LifecycleConfigName: !GetAtt NotebookLifecycleConfig.NotebookInstanceLifecycleConfigName
+      DirectInternetAccess: Enabled
+      KmsKeyId: !GetAtt NotebookKMSKey.Arn
+      SecurityGroupIds:
+        - !Ref SageMakerSecurityGroup
+      SubnetId: !Ref PrivateSubnetA
+      PlatformIdentifier: notebook-al2-v3
+      Tags:
+        - Key: NotebookName
+          Value: !Sub ${AWS::StackName}-db-cookbook
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+      
+  # KMS key for encrypting notebook instance
+  NotebookKMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS key for encrypting SageMaker notebook instance
+      EnableKeyRotation: true
+      Tags:
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: Allow SageMaker to use the key
+            Effect: Allow
+            Principal:
+              Service: sagemaker.amazonaws.com
+            Action:
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey*'
+              - 'kms:DescribeKey'
+            Resource: '*'
+            
+  NotebookKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub 'alias/${AWS::StackName}-notebook-key'
+      TargetKeyId: !Ref NotebookKMSKey
+      
+  NotebookLifecycleConfig:
+    Type: AWS::SageMaker::NotebookInstanceLifecycleConfig
+    Properties:
+      OnStart:
+        - Content:
+            Fn::Base64:
+              Fn::Sub: |
+                #!/bin/bash
+                set -e
+                
+                # Essential configurations
+                echo "c.ServerApp.shutdown_no_activity_timeout = 3600" >> /home/ec2-user/.jupyter/jupyter_notebook_config.py
+                echo "c.NotebookApp.shutdown_no_activity_timeout = 3600" >> /home/ec2-user/.jupyter/jupyter_notebook_config.py
+                echo "cd /home/ec2-user/SageMaker" >> /home/ec2-user/.bashrc
+                
+                # Create repository directory
+                REPO_DIR="/home/ec2-user/SageMaker/db-cookbook"
+                sudo -u ec2-user mkdir -p $REPO_DIR
+                
+                # Configure JupyterLab to properly render Markdown files
+                sudo -u ec2-user mkdir -p /home/ec2-user/.jupyter/lab/user-settings/@jupyterlab/docmanager-extension
+                cat > /home/ec2-user/.jupyter/lab/user-settings/@jupyterlab/docmanager-extension/plugin.jupyterlab-settings << 'EOF'
+                {
+                  "defaultViewers": {
+                    "markdown": "Markdown Preview"
+                  }
+                }
+                EOF
+                
+                # Set proper ownership
+                chown -R ec2-user:ec2-user /home/ec2-user/.jupyter
+                
+                # Setup auto-stop for idle notebook after 1 hour (outside background process)
+                echo "Setting up auto-stop for idle notebook..." >> /home/ec2-user/setup.log
+                cd /home/ec2-user/SageMaker
+                
+                # Download autostop.py only if it does not exist
+                if [ ! -f "autostop.py" ]; then
+                  wget -q https://raw.githubusercontent.com/aws-samples/amazon-sagemaker-notebook-instance-lifecycle-config-samples/master/scripts/auto-stop-idle/autostop.py
+                fi
+                
+                # Set up cron job using system Python
+                PYTHON_PATH=$(source /home/ec2-user/anaconda3/bin/activate JupyterSystemEnv && which python)
+                (crontab -l 2>/dev/null; echo "*/5 * * * * $PYTHON_PATH /home/ec2-user/SageMaker/autostop.py --time 3600 --ignore-connections >> /var/log/jupyter.log") | crontab - 2>/dev/null
+              
+                # Create a welcome message
+                cat > /home/ec2-user/SageMaker/WELCOME.md << 'EOF'
+                # Welcome to AWS Database Cookbook Environment
+                
+                Your JupyterLab environment is starting up.
+                
+                ## ?? Setup Information
+                
+                If this is the first time starting this notebook instance, the environment is being configured in the background. This process includes:
+                - Cloning the repository
+                - Installing database clients (PostgreSQL)
+                - Setting up Python packages
+                - Configuring JupyterLab extensions
+                
+                **Please wait 5-10 minutes** for the initial setup to complete. You can monitor progress by checking `setup.log`.
+                
+                > **Note:** After stopping and restarting the notebook instance, a new `setup.log` file will be created. Previous logs are not preserved between restarts.
+                
+                ## Getting Started (After Setup Completes)
+                
+                1. Navigate to the `db-cookbook` folder
+                2. Open README.md files to get started with each section
+                3. Run the notebooks to follow along with the examples
+                
+                ## Aurora PostgreSQL Connection
+                
+                This notebook has been configured with access to the Aurora PostgreSQL cluster.
+                You can connect using:
+                
+                ```python
+                import boto3
+                import psycopg2
+                import json
+                
+                # Get the secret value
+                sm_client = boto3.client('secretsmanager')
+                secret_name = "<YOUR_SECRET_ARN>"  # Replace with the actual secret ARN
+                secret_value = sm_client.get_secret_value(SecretId=secret_name)
+                secret_json = json.loads(secret_value['SecretString'])
+                
+                # Connect to the database
+                conn = psycopg2.connect(
+                    host="<AURORA_ENDPOINT>",  # Replace with the actual endpoint
+                    port=5432,
+                    database="mylab",
+                    user=secret_json['username'],
+                    password=secret_json['password']
+                )
+                ```
+                
+                Happy coding!
+                EOF
+                
+                # Create or update setup.log file
+                sudo -u ec2-user touch /home/ec2-user/SageMaker/setup.log
+                sudo -u ec2-user bash -c 'echo "$(date): Notebook instance started" > /home/ec2-user/SageMaker/setup.log'
+                
+                # Check if this is a restart by looking for "Setup complete" in setup.log
+                if [ -f "/home/ec2-user/SageMaker/setup.log" ] && grep -q "Setup complete" /home/ec2-user/SageMaker/setup.log; then
+                    sudo -u ec2-user bash -c 'echo "$(date): Detected existing installation, skipping setup" >> /home/ec2-user/SageMaker/setup.log'
+                    sudo -u ec2-user bash -c 'echo "Environment is ready to use." >> /home/ec2-user/SageMaker/setup.log'
+                else
+                    # Start background process for cloning and setup
+                    nohup sudo -u ec2-user bash -c '
+                    echo "$(date): Starting setup process" >> /home/ec2-user/SageMaker/setup.log
+                
+                # Clone repository only if directory is empty
+                REPO_URL="${GitHubRepositoryUrl}"
+                REPO_DIR="/home/ec2-user/SageMaker/db-cookbook"
+                SECRET_NAME="${AWS::StackName}-github-token"
+                
+                # Check if repository already exists and has content
+                if [ ! -d "$REPO_DIR" ] || [ -z "$(ls -A $REPO_DIR 2>/dev/null)" ]; then
+                  echo "Repository directory is empty, cloning..." >> /home/ec2-user/SageMaker/setup.log
+                  
+                  # Check if token is provided via secret
+                  if aws secretsmanager describe-secret --secret-id $SECRET_NAME 2>/dev/null; then
+                    echo "Cloning private repository using token..." >> /home/ec2-user/SageMaker/setup.log
+                    TOKEN=$(aws secretsmanager get-secret-value --secret-id $SECRET_NAME --query SecretString --output text)
+                    REPO_PATH=$(echo $REPO_URL | sed -e "s|https://github.com/||" -e "s|.git$||")
+                    rm -rf $REPO_DIR/*
+                    git clone https://$TOKEN@github.com/$REPO_PATH.git $REPO_DIR >> /home/ec2-user/SageMaker/setup.log 2>&1 || echo "Failed to clone repository" >> /home/ec2-user/SageMaker/setup.log
+                  else
+                    echo "Cloning public repository..." >> /home/ec2-user/SageMaker/setup.log
+                    rm -rf $REPO_DIR/*
+                    git clone $REPO_URL $REPO_DIR >> /home/ec2-user/SageMaker/setup.log 2>&1 || echo "Failed to clone repository" >> /home/ec2-user/SageMaker/setup.log
+                  fi
+                else
+                  echo "Repository already exists with content, skipping clone..." >> /home/ec2-user/SageMaker/setup.log
+                fi
+                
+                # Install AWS CLI v2 (without uninstalling v1 to avoid breaking SageMaker dependencies)
+                echo "Installing AWS CLI v2..." >> /home/ec2-user/SageMaker/setup.log
+                cd /tmp
+                curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" >> /home/ec2-user/SageMaker/setup.log 2>&1
+                unzip -q awscliv2.zip >> /home/ec2-user/SageMaker/setup.log 2>&1
+                sudo ./aws/install --update --bin-dir /usr/local/bin >> /home/ec2-user/SageMaker/setup.log 2>&1
+                rm -rf aws awscliv2.zip
+                cd /home/ec2-user
+                
+                # Create alias for aws to use v2
+                echo "Creating alias for AWS CLI v2..." >> /home/ec2-user/SageMaker/setup.log
+                echo "alias aws=\"/usr/local/bin/aws\"" >> /home/ec2-user/.bashrc
+                echo "alias aws=\"/usr/local/bin/aws\"" >> /home/ec2-user/.bash_profile
+                
+                # Verify AWS CLI v2 installation
+                /usr/local/bin/aws --version >> /home/ec2-user/SageMaker/setup.log 2>&1
+                
+                # Install database clients
+                echo "Installing database clients..." >> /home/ec2-user/SageMaker/setup.log
+                
+                # Use amazon-linux-extras for PostgreSQL (AL2)
+                if command -v amazon-linux-extras >/dev/null 2>&1; then
+                  echo "Using amazon-linux-extras for PostgreSQL installation..." >> /home/ec2-user/SageMaker/setup.log
+                  sudo amazon-linux-extras install -y postgresql14 >> /home/ec2-user/SageMaker/setup.log 2>&1
+                  # Install postgresql-contrib for pgbench (use generic name after amazon-linux-extras)
+                  sudo yum install -y postgresql-contrib >> /home/ec2-user/SageMaker/setup.log 2>&1
+                  echo "export PATH=\"/usr/pgsql-14/bin:$PATH\"" >> /home/ec2-user/.bashrc
+                  echo "export PATH=\"/usr/pgsql-14/bin:$PATH\"" >> /home/ec2-user/.bash_profile
+                else
+                  echo "Using yum for PostgreSQL installation..." >> /home/ec2-user/SageMaker/setup.log
+                  sudo yum install -y postgresql-server postgresql-contrib >> /home/ec2-user/SageMaker/setup.log 2>&1
+                fi
+                
+                # Install jq and telnet
+                sudo yum install -y jq telnet --skip-broken >> /home/ec2-user/SageMaker/setup.log 2>&1
+                
+                echo "Database clients installation completed" >> /home/ec2-user/SageMaker/setup.log
+                
+                # Install Python packages in conda environments
+                echo "Installing Python packages..." >> /home/ec2-user/SageMaker/setup.log
+                
+                # Install in python3 environment with compatible versions
+                echo "Activating python3 environment..." >> /home/ec2-user/SageMaker/setup.log
+                source /home/ec2-user/anaconda3/bin/activate python3
+                echo "Installing packages in python3 environment..." >> /home/ec2-user/SageMaker/setup.log
+                
+                # Install essential database packages first
+                echo "Installing essential database packages..." >> /home/ec2-user/SageMaker/setup.log
+                pip install --no-cache-dir psycopg2-binary "psycopg[binary]" sqlalchemy ipython-sql >> /home/ec2-user/SageMaker/setup.log 2>&1
+                
+                # Check if additional packages are already installed and at compatible versions
+                echo "Checking additional packages..." >> /home/ec2-user/SageMaker/setup.log
+                
+                # Install numexpr first with specific version to avoid pandas warning
+                echo "Installing numexpr 2.8.4 or newer..." >> /home/ec2-user/SageMaker/setup.log
+                pip install --no-cache-dir "numexpr>=2.8.4" >> /home/ec2-user/SageMaker/setup.log 2>&1
+                
+                # Install other packages
+                for pkg in pandas requests numpy matplotlib seaborn; do
+                  if ! pip list | grep -q "$pkg"; then
+                    echo "$pkg not found, installing..." >> /home/ec2-user/SageMaker/setup.log
+                    pip install --no-cache-dir $pkg >> /home/ec2-user/SageMaker/setup.log 2>&1 || echo "Could not install $pkg" >> /home/ec2-user/SageMaker/setup.log
+                  else
+                    echo "$pkg already installed, skipping" >> /home/ec2-user/SageMaker/setup.log
+                  fi
+                done
+                
+                # Create symlinks for node and npm to make them available system-wide
+                echo "Creating symlinks for node and npm..." >> /home/ec2-user/SageMaker/setup.log
+                sudo ln -sf /home/ec2-user/anaconda3/envs/JupyterSystemEnv/bin/node /usr/local/bin/node
+                sudo ln -sf /home/ec2-user/anaconda3/envs/JupyterSystemEnv/bin/npm /usr/local/bin/npm
+                sudo ln -sf /home/ec2-user/anaconda3/envs/JupyterSystemEnv/bin/npx /usr/local/bin/npx
+                
+                # Add /usr/local/bin to system PATH
+                echo 'export PATH="/usr/local/bin:$PATH"' >> /home/ec2-user/.bashrc
+                echo 'export PATH="/usr/local/bin:$PATH"' >> /home/ec2-user/.bash_profile
+                echo 'export PATH="/usr/local/bin:$PATH"' >> /etc/environment
+                
+                # Verify symlinks
+                echo "Verifying node and npm symlinks..." >> /home/ec2-user/SageMaker/setup.log
+                PATH="/usr/local/bin:$PATH" /usr/local/bin/node --version >> /home/ec2-user/SageMaker/setup.log 2>&1
+                PATH="/usr/local/bin:$PATH" /usr/local/bin/npm --version >> /home/ec2-user/SageMaker/setup.log 2>&1
+                
+                # Add PostgreSQL to PATH for Jupyter
+                mkdir -p /home/ec2-user/.ipython/profile_default/startup
+                cat > /home/ec2-user/.ipython/profile_default/startup/00-fix-path.py << PATHEOF
+                import os
+                current_path = os.environ.get("PATH", "")
+                os.environ["PATH"] = f"/usr/local/bin:/usr/pgsql-14/bin:{current_path}"
+                try:
+                    import IPython
+                    if IPython.get_ipython():
+                        IPython.get_ipython().magic(f'env PATH={os.environ["PATH"]}')
+                except: pass
+                PATHEOF
+
+                chown ec2-user:ec2-user /home/ec2-user/.ipython/profile_default/startup/00-fix-path.py
+                
+                # Let SageMaker handle JupyterLab setup
+                echo "Skipping custom JupyterLab setup to avoid version conflicts..." >> /home/ec2-user/SageMaker/setup.log
+                
+                echo "Setup complete" >> /home/ec2-user/SageMaker/setup.log
+                ' > /dev/null 2>&1 &
+                fi
+                
+                # Exit successfully to allow notebook to start
+                exit 0
+
+  # Create security group for SageMaker notebook
+  SageMakerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for SageMaker notebook instance
+      VpcId: !Ref MainVPC
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: Allow HTTPS outbound traffic for package installation
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: Allow HTTP outbound traffic for package installation
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: !Ref VpcCidr
+          Description: Allow all TCP traffic within VPC
+        - IpProtocol: tcp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: 0.0.0.0/0
+          Description: Allow DNS over TCP
+        - IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: 0.0.0.0/0
+          Description: Allow DNS over UDP
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-sagemaker-sg
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+  # Create security group for Aurora database
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Aurora PostgreSQL database
+      VpcId: !Ref MainVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref SageMakerSecurityGroup
+          Description: Allow PostgreSQL access from SageMaker notebook
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: !Ref VpcCidr
+          Description: Allow PostgreSQL access from VPC
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: Allow HTTPS outbound for AWS API calls
+        - IpProtocol: tcp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: 0.0.0.0/0
+          Description: Allow DNS over TCP
+        - IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: 0.0.0.0/0
+          Description: Allow DNS over UDP
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-database-sg
+        - Key: CreationSource
+          Value: aws-database-cookbook-v2025.8
+
+Outputs:
+  NotebookInstanceId:
+    Description: ID of the SageMaker Notebook Instance
+    Value: !Ref NotebookInstance
+    
+  NotebookInstanceUrl:
+    Description: URL to access the SageMaker Notebook Instance JupyterLab
+    Value: !Sub https://${AWS::StackName}-db-cookbook.notebook.${AWS::Region}.sagemaker.aws/lab
+    
+  ExecutionRoleArn:
+    Description: ARN of the IAM Role used by the SageMaker Notebook Instance
+    Value: !GetAtt SageMakerExecutionRole.Arn
+    
+  GitHubTokenSecretArn:
+    Description: ARN of the GitHub token secret (only if private repository)
+    Condition: IsPrivateRepo
+    Value: !Ref GitHubTokenSecret
+    
+  SageMakerSecurityGroup:
+    Description: Security Group ID for SageMaker notebook
+    Value: !Ref SageMakerSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-SageMakerSecurityGroup'
+      
+  DatabaseSecurityGroup:
+    Description: Security Group ID for Aurora database
+    Value: !Ref DatabaseSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-DatabaseSecurityGroup'
+      
+  VpcId:
+    Description: VPC ID
+    Value: !Ref MainVPC
+    Export:
+      Name: !Sub '${AWS::StackName}-VpcId'
+      
+  PrivateSubnetA:
+    Description: Private Subnet A
+    Value: !Ref PrivateSubnetA
+    Export:
+      Name: !Sub '${AWS::StackName}-PrivateSubnetA'
+      
+  PrivateSubnetB:
+    Description: Private Subnet B
+    Value: !Ref PrivateSubnetB
+    Export:
+      Name: !Sub '${AWS::StackName}-PrivateSubnetB'
+      
+  PrivateSubnets:
+    Description: Private Subnets (comma-separated)
+    Value: !Join [',', [!Ref PrivateSubnetA, !Ref PrivateSubnetB]]
+    Export:
+      Name: !Sub '${AWS::StackName}-PrivateSubnets'
+      
+  PublicSubnetACidr:
+    Description: Public Subnet A CIDR
+    Value: !Select [ 0, !Cidr [ !Ref VpcCidr, 4, 8 ]]
+    Export:
+      Name: !Sub '${AWS::StackName}-PublicSubnetACidr'
