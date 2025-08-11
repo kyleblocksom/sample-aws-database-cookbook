@@ -21,8 +21,6 @@ In this foundational section, we'll establish everything you need to begin build
 
 By the end of this section, you'll have a fully configured AWS environment ready for the hands-on projects that follow in later sections.
 
-
-
 ## Prerequisites
 
 - A valid email address for AWS account creation
@@ -34,7 +32,6 @@ By the end of this section, you'll have a fully configured AWS environment ready
 
 - **Enable MFA Immediately**: Secure your AWS account with Multi-Factor Authentication as soon as it's created
 - **Set Up Cost Alerts Early**: Configure AWS Budgets before deploying any resources to avoid unexpected charges
-- **Use AWS Identity and Access Management([IAM](https://aws.amazon.com/iam/)) Roles Over Access Keys**: Enhance security by using temporary credentials through IAM roles
 - **Start Small, Then Expand**: Begin with simple configurations and add complexity as your understanding grows
 - **Clean Up Unused Resources**: Regularly review and terminate resources you're not actively using
 
@@ -43,13 +40,11 @@ By the end of this section, you'll have a fully configured AWS environment ready
 - **Account Setup Hurdles**: Troubleshooting guidance for email verification, payment verification, and identity verification
 - **Free Tier Confusion**: Clear explanations of what's included and how to track your usage
 - **Security Configuration**: Step-by-step instructions for implementing AWS security best practices
-- **Environment Setup Options**: Simplified approaches for both [Amazon SageMaker](https://aws.amazon.com/sagemaker/) and local development environments
+- **Environment Setup Options**: Simplified approaches using [Amazon SageMaker](https://aws.amazon.com/sagemaker/) Jupyter Notebook
 
 ## Next Steps
 
-🎉 **Great work!** You've completed this important section and gained valuable Aurora expertise.
-
-**Ready to dive in?** Let's start your hands-on journey with [1.1 Creating Your AWS Account](./1.1_Creating_Your_AWS_Account) and begin building your Aurora expertise!
+🎉 **Ready to dive in?** Let's start your hands-on journey with [1.1 Creating Your AWS Account](./1.1_Creating_Your_AWS_Account) and begin building your Aurora expertise!
 
 ## Learn More
 
