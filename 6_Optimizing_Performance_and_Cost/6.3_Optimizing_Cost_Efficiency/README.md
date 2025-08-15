@@ -1,17 +1,29 @@
 # 6.3 Optimizing Cost Efficiency
 
+## Optimization Overview
+
+| Area | Recommendations |
+|:---:|:---:|
+| Compute | Use RIs, Graviton, Serverless, scale with replicas, auto-stop dev/test clusters |
+| Storage | Delete unused objects, use partitions, monitor usage |
+| I/O | Tune queries, batch writes, avoid full scans |
+| Backups | Review retention, remove old manual snapshots |
+| Transfer | Align client location with DB, use VPC endpoints |
+| Slow failover | Investigate DNS TTL, connection draining, and reader promotion time |
+| Aurora Serverless v2 not scaling down | Check connection count and minACU configuration |
+
 ## Topics
 
-- [3.a Compute Optimization Strategies](#3.a-compute-optimization-strategies)
-- [3b. Storage Optimization](#3b.-storage-optimization)
-- [3c. I/O Cost Control](#3c.-i/o-cost-control)
-- [3d. Backups and Snapshots](#3d.-backups-and-snapshots)
-- [3e. Data Transfer Costs](#3e.-data-transfer-costs)
-- [3f. Advanced Aurora Features for Optimization](#3f.-advanced-aurora-features-for-optimization)
-- [3g. Visibility & Monitoring](#3g.-visibility-&-monitoring)
-- [Optimization Summary](#optimization-summary)
+- [1. Compute Optimization Strategies](#1-compute-optimization-strategies)
+- [2. Storage Optimization](#2-storage-optimization)
+- [3. Cost Control](#3-io-cost-control)
+- [4. Backups and Snapshots](#4-backups-and-snapshots)
+- [5. Data Transfer Costs](#5-data-transfer-costs)
+- [6. Advanced Aurora Features for Optimization](#6-advanced-aurora-features-for-optimizationn)
+- [7. Visibility & Monitoring](#7-visibility--monitoring)
+- [8. AI-Powered Cost Optimization](#8-ai-powered-cost-optimization)
 
-## 3.a Compute Optimization Strategies
+## 1. Compute Optimization Strategies
 Provisioning DB instances has a direct impact on both performance and cost. Over-provisioning leads to wasted spend, while under-provisioning affects performance. Let’s see some of the optimizing strategies for compute that you can consider based on your need. In the image, read replicas are scaled horizontally and eventually increase the overall number of cluster’s compute.
  
  | Optimization Technique | Solution |
@@ -33,7 +45,7 @@ Provisioning DB instances has a direct impact on both performance and cost. Over
 Troubleshooting FAQ:
 - Why aren’t my replicas scaling automatically? → Check CloudWatch metric thresholds & cooldown timers.
 
-## 3b. Storage Optimization
+## 2. Storage Optimization
 Aurora uses automatically scaling storage, so it's crucial to manage data growth effectively.
 Optimization Recommendations:
 - Monitor VolumeBytesUsed with CloudWatch.
@@ -44,7 +56,7 @@ Optimization Recommendations:
 - Enable lifecycle policies for snapshot cleanup.
 - Use data archival patterns for cold data.
 
-## 3c. I/O Cost Control
+## 3. I/O Cost Control
 I/O costs are driven by actual read/write operations. There's no charge for reads from the buffer cache.
  
 Optimization Recommendations:
@@ -54,29 +66,33 @@ Optimization Recommendations:
 - Remove unused and duplicate indexes.
 
 Cost Insight Tip: Logical backups (pg_dump) can spike read I/O—prefer native snapshots for backups.
+
 **Best Practices:**
 - Use metrics like ReadIOPS, WriteIOPS to analyze patterns.
 - Implement caching strategies (e.g., ElastiCache) where feasible.
 
-## 3d. Backups and Snapshots
+## 4. Backups and Snapshots
+
 Backup storage grows with time. Retention policies impact costs significantly.
 Optimization Recommendations:
 - Set appropriate retention periods.
 - Regularly review and delete manual snapshots.
+
 **Best Practices:**
 - Automate snapshot cleanup.
 - Export snapshots to S3 for long-term archival if needed.
 
-## 3e. Data Transfer Costs
+## 5. Data Transfer Costs
 Cross-AZ and cross-region data traffic adds to your Aurora bill.
 Optimization Recommendations:
 - Minimize cross-AZ traffic by locating clients in the same AZ.
 - Use VPC endpoints to access other AWS services cost-effectively.
+
 **Best Practices:**
 - Plan application placement to optimize for locality.
 - Consider consolidating clients or using regional endpoints.
 
-## 3f. Advanced Aurora Features for Optimization
+## 6. Advanced Aurora Features for Optimization
 Feature Optimization Benefit
 - Aurora Global Database: Offload read operations to regional replicas
 - RDS Proxy: Reduces connection churn, improves scalability
@@ -84,7 +100,7 @@ Feature Optimization Benefit
 - Fast Cloning: Quick duplication of environments without full copy cost
 - Database Activity Streams: Real-time activity insights via Kinesis for advanced observability
 
-## 3g. Visibility & Monitoring
+## 7. Visibility & Monitoring
 Use these tools for visibility into cost and performance patterns:
 - Cost Allocation Tags – Organize billing by environment, project, or team.
 - Cost Explorer – Drill into usage by cluster, region, or usage type.
@@ -106,17 +122,27 @@ You can use tags **Env**, and **Function** to analyze and track the usage of the
 - Always enable and activate Cost Tags.
 - Create dashboards combining CloudWatch, Trusted Advisor, and Cost Explorer data.
 
-## Optimization Summary
+## 8. AI-Powered Cost Optimization
 
-| Area | Recommendations |
-|:---:|:---:|
-| Compute | Use RIs, Graviton, Serverless, scale with replicas, auto-stop dev/test clusters |
-| Storage | Delete unused objects, use partitions, monitor usage |
-| I/O | Tune queries, batch writes, avoid full scans |
-| Backups | Review retention, remove old manual snapshots |
-| Transfer | Align client location with DB, use VPC endpoints |
-| Slow failover | Investigate DNS TTL, connection draining, and reader promotion time |
-| Aurora Serverless v2 not scaling down | Check connection count and minACU configuration |
+AWS provides intelligent cost optimization capabilities through two powerful systems: the AWS Pricing MCP Server and AWS Cost Explorer MCP Server. These AI-driven tools help you make informed decisions about your AWS spending and resource allocation.
+
+### [Real-Time Pricing Intelligence](https://awslabs.github.io/mcp/servers/aws-pricing-mcp-server)
+The AWS Pricing MCP Server delivers real-time pricing insights through natural language queries, allowing you to:
+- Explore the complete AWS service catalog and pricing dimensions
+- Compare costs across multiple regions
+- Generate detailed cost analysis reports
+- Evaluate infrastructure projects through automatic CDK and Terraform scanning
+- Receive Well-Architected Framework-aligned optimization recommendations
+
+### [Cost Analysis and Forecasting](https://awslabs.github.io/mcp/servers/cost-explorer-mcp-server)
+The AWS Cost Explorer MCP Server enables deep cost analysis and predictive insights:
+- Break down costs by service, region, and custom dimensions
+- Compare costs between different time periods to identify trends
+- Analyze cost drivers and significant changes automatically
+- Generate accurate cost forecasts with confidence intervals
+- Access historical cost data through simple natural language queries
+
+*Note: While these AI tools provide powerful cost optimization capabilities, recommendations should be verified against your specific use cases and requirements.*
 
 ## Next Steps
 

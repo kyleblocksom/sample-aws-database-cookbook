@@ -4,8 +4,6 @@ Ready to build your first cloud database? Welcome to [Amazon Aurora](https://aws
 
 Whether you're launching a startup or modernizing your applications, this section will guide you step-by-step through creating your first professional-grade database in the cloud. No more wrestling with complex database management – we'll show you how Amazon Aurora makes it simple.
 
-> **💡 Quick Start Available**: Want to skip the manual setup on networking and database creation? Launch the infrastructure with our [AWS CloudFormation template](./cfn/aurora-complete-stack.yml). Then, feel free to explore from the [AWS console](https://console.aws.amazon.com/rds) for what you have created.
-
 In this section, you'll:
 - Launch a highly available Aurora database in minutes
 - Master database connectivity through practical code examples
@@ -14,6 +12,8 @@ In this section, you'll:
 - Understand Aurora's unique scaling capabilities
 
 We'll demystify Aurora's innovative architecture that delivers the performance and availability of commercial databases at open-source pricing. By the end of this section, you'll have a fully functional Aurora database powering your applications with single-digit millisecond latency and six-way replication.
+
+> **💡 Quick Start Available**: Want to skip the manual setup on networking and database creation? Launch the infrastructure with our [AWS CloudFormation template](./cfn/aurora-complete-stack.yml). Then, feel free to explore from the [AWS console](https://console.aws.amazon.com/rds) for what you have created.
 
 Let's dive in and transform the way you think about databases! 💪
 
