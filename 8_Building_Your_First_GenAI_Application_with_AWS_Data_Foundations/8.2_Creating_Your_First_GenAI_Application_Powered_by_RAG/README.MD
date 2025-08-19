@@ -128,7 +128,7 @@ Ready to build your first RAG application? Start with our [Bedrock Knowledge Bas
 
 🎉 **Revolutionary!** You've built GenAI applications powered by Aurora and vector databases. You're at the forefront of AI-driven development!
 
-**Ready to continue?** Let's advance to [8.3 Building a Claim Processing Agent](../8.3_Building_a_Claim_Processing_Agent) and develop an intelligent system that streamlines insurance claims handling with the power of generative AI!
+**Ready to continue?** Let's advance to [8.3 Building a Claim Processing Agent](../8.3_Building_Your_Life_Insurance_Agent) and develop an intelligent system that streamlines insurance claims handling with the power of generative AI!
 
 ## Learn More
 
