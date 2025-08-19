@@ -26,13 +26,13 @@ Let's dive in and transform the way you build AI applications! 💪
 
 ## What We'll Build Together
 
-1. [Data as Your Strategic Asset for GenAI Applications](./8.1_Data_Strategic_Asset/)
+1. [Data as Your Strategic Asset for GenAI Applications](./8.1_Data_as_Your_Strategic_Asset_for_GenAI_Applications/)
    - Design a robust data foundation for GenAI
    - Understand different data types and their roles
    - Choose the right database for each component
    - Master data integration patterns
 
-2. [Creating Your First GenAI Application Powered by RAG](./8.2_First_GenAI_RAG/)
+2. [Creating Your First GenAI Application Powered by RAG](./8.2_Creating_Your_First_GenAI_Application_Powered_by_RAG/)
    - Build a simple yet powerful chatbot
    - Implement vector search with Aurora pgvector
    - Optimize RAG performance and accuracy
