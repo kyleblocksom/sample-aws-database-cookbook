@@ -125,6 +125,4 @@ Once you've completed the cookbook sections, visit our [Conclusion and Next Step
 
 - [AWS Cloud Databases - High-performance, secure, and reliable foundation to power generative AI solutions and data-driven applications at any scale](https://aws.amazon.com/products/databases/)
 - [AWS Database Blog - Insights and Solutions for Data Architecture](https://aws.amazon.com/blogs/database/)
-- [Aurora User Guide - Complete reference for Amazon Aurora database service](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/)
-- [Aurora Best Practices Guide - Production-ready configuration and optimization tips](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.BestPractices.html)
-- [Aurora PostgreSQL Workshop - Hands-on lab for building PostgreSQL applications](https://catalog.workshops.aws/apgimmday/en-US)
+- [Fuel innovation with data and AI - Make more informed decisions, improve operations, and differentiate with generative AI](https://aws.amazon.com/data/)
