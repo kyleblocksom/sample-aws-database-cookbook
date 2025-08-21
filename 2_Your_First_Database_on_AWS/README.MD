@@ -122,7 +122,7 @@ Take your applications worldwide:
 - **DR**: Disaster Recovery
 - **HA**: High Availability
 
-Now that you understand Aurora's foundational architecture and capabilities, you're ready to put this knowledge into practice. The scalability features we've covered here—from serverless compute to global databases—will become essential as your applications grow and evolve. For a deeper dive into how these scaling strategies work in real-world scenarios, explore our comprehensive guide on [Understanding Aurora Scalability Features](../5_Scaling_for_Success_Growing_with_Aurora/5.1_Understanding_Aurora_Scalability_Features/README.md).
+> 💡 **Note**: The scalability features we've covered here—from serverless compute to global databases—will become essential as your applications grow and evolve. For a deeper dive into how these scaling strategies work in real-world scenarios, explore our comprehensive guide on [Understanding Aurora Scalability Features](../5_Scaling_for_Success_Growing_with_Aurora/5.1_Understanding_Aurora_Scalability_Features/README.md).
 
 ## Next Steps
 
