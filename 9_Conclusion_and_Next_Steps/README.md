@@ -22,9 +22,9 @@ Throughout this cookbook, you've gained hands-on experience with:
 - **Security Best Practices** - Applied encryption, IAM, and VPC security
 
 ### Real-World Applications
-1. **Serverless Retail Web Application** - Complete e-commerce platform
-2. **Insurance Claim Processing Agent** - AI-powered document processing
-3. **Healthcare Database System** - Natural language database queries
+1. **Serverless Retail Web Application** - Complete e-commerce platform with single-region Aurora PostgreSQL and multi-region Aurora DSQL deployments
+2. **Life Insurance Agent Powered by GenAI** - AI-powered system for managing life insurance policies, processing premium payments, and providing policy information
+3. **Healthcare Database System Natural Language Search** - Natural language to SQL conversion system for healthcare databases
 
 ### Technical Skills
 - Infrastructure as Code with CloudFormation
