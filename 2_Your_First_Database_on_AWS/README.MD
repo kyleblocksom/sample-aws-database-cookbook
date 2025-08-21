@@ -49,7 +49,7 @@ You'll need:
 
 [Amazon Aurora](https://aws.amazon.com/rds/aurora/) is a relational database management system (RDBMS) built for the cloud with full MySQL and PostgreSQL compatibility. Aurora gives you the performance and availability of commercial-grade databases at one-tenth the cost. Aurora's unparalleled high performance and availability at global scale comes from its AWS cloud native architecture shown as follows.
 
-> 🚀 **New!** Aurora also offers [DSQL](https://aws.amazon.com/rds/aurora/dsql/), the fastest distributed SQL database that is PostgreSQL-compatible. Aurora is designed for up to 99.999% multi-Region availability. With Aurora DSQL, Aurora provides virtually unlimited scale in and across regions with no infrastructure management. You will learn more about Aurora scalability and DSQL in [5 Scaling for Success Growing with Aurora](../5_Scaling_for_Success_Growing_with_Aurora/README.md).
+> 🚀 **New!** Aurora also offers [DSQL](https://aws.amazon.com/rds/aurora/dsql/), the fastest serverless distributed SQL database that is PostgreSQL-compatible. Aurora DSQL is designed for up to 99.999% multi-Region availability. Aurora DSQL provides virtually unlimited scale in and across regions with no infrastructure management. You will learn more about Aurora scalability and DSQL in [5 Scaling for Success Growing with Aurora](../5_Scaling_for_Success_Growing_with_Aurora/README.md).
 
 ![Aurora Architecture](images/2.1-aurora-basic-architecture.png)
 
