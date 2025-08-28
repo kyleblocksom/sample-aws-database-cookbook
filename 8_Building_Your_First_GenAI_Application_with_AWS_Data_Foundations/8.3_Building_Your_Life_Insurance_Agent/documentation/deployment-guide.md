@@ -37,7 +37,7 @@ npm install
 
 > 💡 **Note**: If you are running from the Amazon SageMaker Notebook following [1.4 Setting up Your Cookbook Environment](../../../1_Getting_Started_with_AWS/1.4_Setting_up_Your_Cookbook_Environment/README.MD), the repository has been cloned when you lanuched the [AWS CloudFormation template](../../../1_Getting_Started_with_AWS/cfn/sagemaker-notebook-template.yaml).
 
-From the Amazon SageMaker Notebook lancuned by [1.4 Setting up Your Cookbook Environment](../../../1_Getting_Started_with_AWS/1.4_Setting_up_Your_Cookbook_Environment/README.MD):
+From the Amazon SageMaker Notebook launched by [1.4 Setting up Your Cookbook Environment](../../../1_Getting_Started_with_AWS/1.4_Setting_up_Your_Cookbook_Environment/README.MD):
 
   - Go to [8.3_Building_Your_Life_Insurance_Agent](../../../8_Building_Your_First_GenAI_Application_with_AWS_Data_Foundations/README.md)
   - Click **[+]** button in the top-left corner of the JupyterLab console

@@ -13,13 +13,15 @@ import * as codepipeline from 'aws-cdk-lib/aws-codepipeline';
 import * as codepipeline_actions from 'aws-cdk-lib/aws-codepipeline-actions';
 import { Stack } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
+import { NamingUtils } from './utils/naming';
 
-interface CodePipelineStackProps extends cdk.StackProps {
+export interface CodePipelineStackProps extends cdk.StackProps {
   vpcId: string;
   publicSubnetIds: string[];
   privateSubnetIds: string[];
   ecsClusterName: string;
   ecsServiceName: string;
+  naming: NamingUtils;
 }
 
 export class CodePipelineStack extends cdk.Stack {
@@ -40,19 +42,9 @@ export class CodePipelineStack extends cdk.Stack {
       throw new Error("Missing connection_arn. Deploy with: cdk deploy --context connection_arn=<your-arn>");
     }
 
-    // Get prefix/name for resources
-    const prefix = app_context.name;
-    
-    // Format resource names using replace
-    const s3_bucket_name = s3_context.bucketName
-      .replace("{app.name}", prefix)
-      .replace("{account}", this.account)
-      .replace("{region}", this.region);
-    const feedback_table_name = dynamodb_context.feedback_table_name.replace("{app.name}", prefix);
-
-    // Create or import ECR repository
-    const repo_name = ecr_context.repository_name || `${prefix}-ecr-repo`;
-    this.ecrRepository = this.createOrImportRepository(repo_name);
+    // Create or import ECR repository using appropriate naming method
+    const repositoryName = props.naming.repositoryName('streamlit');
+    this.ecrRepository = this.createOrImportRepository(repositoryName);
 
     // Import VPC
     const vpc = ec2.Vpc.fromVpcAttributes(this, 'ImportedVpc', {
@@ -70,7 +62,7 @@ export class CodePipelineStack extends cdk.Stack {
 
     // CodeBuild Project with updated configuration
     const build_project = new codebuild.PipelineProject(this, "BuildProject", {
-      buildSpec: codebuild.BuildSpec.fromSourceFilename("app/buildspec.yml"),
+      buildSpec: codebuild.BuildSpec.fromSourceFilename("8.3_Building_Your_Life_Insurance_Agent/app/buildspec.yml"),
       timeout: cdk.Duration.hours(2),
       queuedTimeout: cdk.Duration.hours(8),
       environment: {
@@ -78,16 +70,16 @@ export class CodePipelineStack extends cdk.Stack {
         buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
         computeType: codebuild.ComputeType.LARGE,
         environmentVariables: {
-          APP_NAME: { value: app_context.name },
-          S3_BUCKET: { value: s3_bucket_name },
+          APP_NAME: { value: props.naming.serviceName('app') },
+          S3_BUCKET: { value: props.naming.bucketName('pipeline') },
           S3_DOCS_PREFIX: { value: s3_context.folders.docs },
           S3_ASSETS_PREFIX: { value: s3_context.folders.assets },
-          FEEDBACK_TABLE: { value: feedback_table_name },
+          FEEDBACK_TABLE: { value: props.naming.tableName('feedback') },
           ECR_REPO_URI: { value: this.ecrRepository.repositoryUri },
           AWS_ACCOUNT_ID: { value: Stack.of(this).account },
           AWS_DEFAULT_REGION: { value: Stack.of(this).region },
           IMAGE_REPO_NAME: { value: this.ecrRepository.repositoryName },
-          CONTAINER_NAME: { value: `${app_context.name}WebContainer` }
+          CONTAINER_NAME: { value: props.naming.serviceName('web') }
         }
       },
       logging: {
@@ -123,6 +115,7 @@ export class CodePipelineStack extends cdk.Stack {
 
     // Pipeline artifacts
     const artifact_bucket = new s3.Bucket(this, "PipelineArtifacts", {
+      bucketName: props.naming.bucketName('artifacts'),
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true
     });

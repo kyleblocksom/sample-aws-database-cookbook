@@ -24,10 +24,8 @@ import { NamingUtils } from './utils/naming';
 import { aws_bedrock as bedrock } from 'aws-cdk-lib';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 
-interface BedrockAgentConfig {
-  actionGroups: AgentActionGroup[];
-  knowledgeBaseId: string;
-  instruction: string;
+export interface BedrockStackProps extends cdk.StackProps {
+  naming: NamingUtils;
 }
 
 export class BedrockStack extends cdk.Stack {
@@ -61,8 +59,9 @@ export class BedrockStack extends cdk.Stack {
     knowledgeBase: string;
   };
 
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props: BedrockStackProps) {
     super(scope, id, props);
+    this.naming = props.naming;
 
     // Get context values
     const app_context = this.node.tryGetContext('app');
@@ -80,8 +79,6 @@ export class BedrockStack extends cdk.Stack {
     console.log('Context Values:');
     console.log('App Context:', JSON.stringify(app_context, null, 2));
     console.log('Database Context:', JSON.stringify(db_context, null, 2));
-
-    this.naming = new NamingUtils(app_context.name);
 
     // Create VPC
     this.vpc = new ec2.Vpc(this, 'VPC', {
@@ -798,7 +795,7 @@ export class BedrockStack extends cdk.Stack {
       ADDRESSES_TABLE: db_context.tables.addresses,
       BENEFICIARIES_TABLE: db_context.tables.beneficiaries,
       PAYMENT_HISTORY_TABLE: db_context.tables.payment_history,
-      PAYMENT_METHODS_TABLE: db_context.tables.payment_methods 
+      PAYMENT_METHODS_TABLE: db_context.tables.payment_methods
     };
   }
 
