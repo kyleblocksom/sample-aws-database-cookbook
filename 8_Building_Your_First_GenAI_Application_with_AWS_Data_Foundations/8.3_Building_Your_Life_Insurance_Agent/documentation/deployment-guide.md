@@ -31,7 +31,7 @@
 
 ```bash
 git clone <repository-url>
-cd <life-insurance-agent>
+cd 8.3_Building_Your_Life_Insurance_Agent
 npm install
 ```
 
