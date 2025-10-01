@@ -62,7 +62,7 @@ export class CodePipelineStack extends cdk.Stack {
 
     // CodeBuild Project with updated configuration
     const build_project = new codebuild.PipelineProject(this, "BuildProject", {
-      buildSpec: codebuild.BuildSpec.fromSourceFilename("8.3_Building_Your_Life_Insurance_Agent/app/buildspec.yml"),
+      buildSpec: codebuild.BuildSpec.fromSourceFilename("8_Building_Your_First_GenAI_Application_with_AWS_Data_Foundations/8.3_Building_Your_Life_Insurance_Agent/buildspec.yml"),
       timeout: cdk.Duration.hours(2),
       queuedTimeout: cdk.Duration.hours(8),
       environment: {

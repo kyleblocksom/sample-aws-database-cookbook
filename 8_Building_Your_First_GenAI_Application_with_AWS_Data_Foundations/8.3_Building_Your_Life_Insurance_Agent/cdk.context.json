@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "lifeins-7903",
+    "name": "lifeins-5460",
     "title": "Life Insurance Agent",
     "icon": "🏥",
     "chatPrompt": "How can I help with your life insurance needs?"
@@ -113,11 +113,11 @@
   },
   "cloudfront": {
     "custom_header_name": "X-Custom-Header",
-    "custom_header_value": "91bda387664807620a9369987713d7a1"
+    "custom_header_value": "e4e1f4e5f9aca43d5dd15309ccfcb49e"
   },
   "github": {
     "owner": "kyleblocksom",
-    "repo": "db-cookbook",
+    "repo": "sample-aws-database-cookbook",
     "branch": "main"
   },
   "connection_arn": "arn:aws:codeconnections:us-east-1:239380694500:connection/843f16bd-5bc1-4870-b606-2d69e55e6abf",

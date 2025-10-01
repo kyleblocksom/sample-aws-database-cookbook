@@ -316,9 +316,9 @@ export class StreamlitAppStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY
     });
 
-    // Use the ECR repository in the task definition
+    // Use placeholder image initially - will be updated by CodePipeline
     const container = fargate_task_definition.addContainer(`${prefix}WebContainer`, {
-      image: ecs.ContainerImage.fromEcrRepository(props.ecrRepository, "latest"),
+      image: ecs.ContainerImage.fromRegistry("nginx:latest"),
       portMappings: [
         {
           containerPort: container_context.port,
