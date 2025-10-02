@@ -79,7 +79,7 @@ export class CodePipelineStack extends cdk.Stack {
           AWS_ACCOUNT_ID: { value: Stack.of(this).account },
           AWS_DEFAULT_REGION: { value: Stack.of(this).region },
           IMAGE_REPO_NAME: { value: this.ecrRepository.repositoryName },
-          CONTAINER_NAME: { value: props.naming.serviceName('web') }
+          CONTAINER_NAME: { value: `${app_context.name}WebContainer` }
         }
       },
       logging: {
